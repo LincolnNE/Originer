@@ -13,6 +13,7 @@
  */
 
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import cors from '@fastify/cors';
 import { createServices, Services } from './services';
 import { registerLessonRoutes } from './routes/lessons';
 import { registerSessionRoutes } from './routes/sessions';
@@ -34,7 +35,7 @@ async function createServer(): Promise<FastifyInstance> {
   });
 
   // Register CORS plugin (basic configuration)
-  await server.register(require('@fastify/cors'), {
+  await server.register(cors, {
     origin: process.env.CORS_ORIGIN || '*',
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
