@@ -52,5 +52,35 @@ export default function LandingPage() {
   // 5. Navigate to first screen
   // 6. Transition to IN_LESSON state
   
-  return null; // Placeholder - no JSX yet
+  return (
+    <div style={{ 
+      minHeight: '100vh', 
+      display: 'flex', 
+      flexDirection: 'column', 
+      alignItems: 'center', 
+      justifyContent: 'center',
+      padding: '2rem',
+      fontFamily: 'system-ui, -apple-system, sans-serif'
+    }}>
+      <h1 style={{ fontSize: '2rem', marginBottom: '1rem' }}>ORIGINER</h1>
+      <p style={{ marginBottom: '2rem', color: '#666' }}>AI Instructor Platform</p>
+      <button 
+        onClick={() => {
+          // TODO: Implement session creation
+          alert('Session creation coming soon!');
+        }}
+        style={{
+          padding: '0.75rem 1.5rem',
+          fontSize: '1rem',
+          backgroundColor: '#0070f3',
+          color: 'white',
+          border: 'none',
+          borderRadius: '0.5rem',
+          cursor: 'pointer'
+        }}
+      >
+        Start Learning
+      </button>
+    </div>
+  );
 }

@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@fastify/cors": "^8.4.0",
-    "@vercel/node": "^3.0.0",
-    "fastify": "^4.24.3"
+    "@vercel/node": "^5.5.28",
+    "fastify": "^5.7.4"
   }
 }
