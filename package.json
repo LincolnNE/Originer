@@ -1,0 +1,25 @@
+{
+  "name": "originer",
+  "version": "0.1.0",
+  "description": "ORIGINER - AI Instructor Platform",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/server.ts",
+    "start": "node dist/server.js",
+    "test": "jest"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^20.19.30",
+    "pino-pretty": "^10.2.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@fastify/cors": "^8.4.0",
+    "fastify": "^4.24.3"
+  }
+}
