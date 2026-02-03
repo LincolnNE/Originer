@@ -23,20 +23,21 @@ interface RootLayoutProps {
 }
 
 export default function RootLayout({ children }: RootLayoutProps) {
-  // TODO: Implement JSX
-  // return (
-  //   <html lang="en">
-  //     <head>
-  //       {/* TODO: Metadata */}
-  //     </head>
-  //     <body>
-  //       <AppStateMachineProvider>
-  //         <SessionProvider>
-  //           {children}
-  //         </SessionProvider>
-  //       </AppStateMachineProvider>
-  //     </body>
-  //   </html>
-  // );
-  return null as any; // Placeholder - no JSX yet
+  return (
+    <html lang="en">
+      <head>
+        <meta charSet="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>ORIGINER - AI Instructor Platform</title>
+      </head>
+      <body style={{ margin: 0, padding: 0 }}>
+        {/* TODO: Add providers when ready */}
+        {/* <AppStateMachineProvider>
+          <SessionProvider> */}
+            {children}
+          {/* </SessionProvider>
+        </AppStateMachineProvider> */}
+      </body>
+    </html>
+  );
 }
