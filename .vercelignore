@@ -1,10 +1,11 @@
 # Files to ignore during Vercel deployment
 
-# Documentation
+# Documentation (but keep config/prompts which are needed by backend)
 docs/
 *.md
 !README.md
 !VERCEL_DEPLOYMENT.md
+!config/prompts/**/*.md
 
 # Tests
 tests/

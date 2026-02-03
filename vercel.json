@@ -13,7 +13,7 @@
   "functions": {
     "api/serverless/[...path].ts": {
       "runtime": "@vercel/node",
-      "includeFiles": "src/**",
+      "includeFiles": "src/**,config/**",
       "excludeFiles": "src/**/*.test.ts"
     }
   },
