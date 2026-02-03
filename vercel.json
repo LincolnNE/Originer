@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/.next",
+  "installCommand": "npm install",
+  "framework": null,
+  "rewrites": [
+    {
+      "source": "/api/v1/:path*",
+      "destination": "/api/serverless/:path*"
+    },
+    {
+      "source": "/health",
+      "destination": "/api/serverless/health"
+    }
+  ],
+  "functions": {
+    "api/serverless/[...path].ts": {
+      "runtime": "@vercel/node",
+      "includeFiles": "src/**",
+      "excludeFiles": "src/**/*.test.ts"
+    }
+  },
+  "env": {
+    "NODE_ENV": "production"
+  }
+}
