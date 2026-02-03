@@ -47,7 +47,8 @@ export default function LessonScreen({ sessionId, screenId }: LessonScreenProps)
   }, [sessionId, screenId, output, processInput]);
 
   // Placeholder state (will be replaced with actual state management)
-  const currentState = 'IN_LESSON'; // 'IN_LESSON' | 'AWAITING_FEEDBACK' | 'REVIEWING'
+  type ScreenState = 'IN_LESSON' | 'AWAITING_FEEDBACK' | 'REVIEWING';
+  const currentState = 'IN_LESSON' as ScreenState;
   const instructorActivity = output?.type === 'problem_presentation' 
     ? 'Presenting problem' 
     : output?.type === 'feedback'

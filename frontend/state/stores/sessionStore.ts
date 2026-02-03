@@ -18,13 +18,31 @@ export const useSessionStore = create<SessionStore>((set) => ({
   error: null,
   
   // Actions
-  setSession: (session) => set({ 
-    session, 
-    currentSessionId: session?.id || null,
-    sessionState: session?.sessionState === 'completed' ? 'completed' : 
-                  session?.sessionState === 'paused' ? 'paused' : 
-                  session ? 'active' : 'initializing'
-  }),
+  setSession: (session: any) => {
+    if (!session) {
+      set({ session: null, currentSessionId: null, sessionState: 'initializing' });
+      return;
+    }
+    const now = new Date();
+    set({ 
+      session: {
+        id: session.id,
+        learnerId: session.learnerId,
+        instructorProfileId: session.instructorProfileId,
+        subject: session.subject,
+        topic: session.topic,
+        learningObjective: session.learningObjective,
+        sessionState: session.sessionState,
+        startedAt: typeof session.startedAt === 'string' ? new Date(session.startedAt) : (session.startedAt || now),
+        lastActivityAt: typeof session.lastActivityAt === 'string' ? new Date(session.lastActivityAt) : (session.lastActivityAt || now),
+        endedAt: session.endedAt ? (typeof session.endedAt === 'string' ? new Date(session.endedAt) : session.endedAt) : null,
+      }, 
+      currentSessionId: session.id || null,
+      sessionState: session.sessionState === 'completed' ? 'completed' : 
+                    session.sessionState === 'paused' ? 'paused' : 
+                    'active'
+    });
+  },
   
   setSessionState: (state) => set({ sessionState: state }),
   

@@ -27,7 +27,18 @@ export interface SessionStore {
   error: string | null;
   
   // Actions
-  setSession: (session: SessionStore['session']) => void;
+  setSession: (session: {
+    id: string;
+    learnerId: string;
+    instructorProfileId: string;
+    subject: string;
+    topic: string;
+    learningObjective: string;
+    sessionState: 'active' | 'paused' | 'completed' | 'abandoned';
+    startedAt: string | Date;
+    lastActivityAt?: string | Date;
+    endedAt?: string | Date | null;
+  } | null) => void;
   setSessionState: (state: SessionState) => void;
   clearSession: () => void;
   updateSession: (updates: Partial<NonNullable<SessionStore['session']>>) => void;
