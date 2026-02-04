@@ -17,6 +17,9 @@ import cors from '@fastify/cors';
 import { createServices, Services } from './services';
 import { registerLessonRoutes } from './routes/lessons';
 import { registerSessionRoutes } from './routes/sessions';
+import { registerInstructorRoutes } from './routes/instructors';
+import { registerLearnerRoutes } from './routes/learners';
+import { registerDashboardRoutes } from './routes/dashboard';
 
 /**
  * Create and configure Fastify server instance
@@ -35,11 +38,24 @@ async function createServer(): Promise<FastifyInstance> {
   });
 
   // Register CORS plugin (basic configuration)
-  await server.register(cors, {
-    origin: process.env.CORS_ORIGIN || '*',
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  });
+  // #region agent log
+  fetch('http://127.0.0.1:7244/ingest/0c662f85-e502-4845-87fd-af769992dabf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.ts:38',message:'Registering CORS plugin',data:{fastifyVersion:'5.7.4',corsVersion:'11.2.0'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
+  try {
+    await server.register(cors, {
+      origin: process.env.CORS_ORIGIN || '*',
+      methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
+    });
+    // #region agent log
+    fetch('http://127.0.0.1:7244/ingest/0c662f85-e502-4845-87fd-af769992dabf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.ts:45',message:'CORS plugin registered successfully',data:{success:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+  } catch (error) {
+    // #region agent log
+    fetch('http://127.0.0.1:7244/ingest/0c662f85-e502-4845-87fd-af769992dabf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.ts:49',message:'CORS plugin registration failed',data:{error:error instanceof Error ? error.message : String(error),code:error instanceof Error && 'code' in error ? error.code : undefined},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    throw error;
+  }
 
   // Initialize services
   // This creates SessionOrchestrator, PromptAssembler, ResponseValidator, and adapters
@@ -49,8 +65,17 @@ async function createServer(): Promise<FastifyInstance> {
   // Lesson routes use SessionOrchestrator (which uses PromptAssembler and ResponseValidator internally)
   await registerLessonRoutes(server, services.sessionOrchestrator, services.storageAdapter);
   
-  // Session routes use StorageAdapter directly
-  await registerSessionRoutes(server, services.storageAdapter);
+  // Session routes use StorageAdapter and SessionOrchestrator
+  await registerSessionRoutes(server, services.storageAdapter, services.sessionOrchestrator);
+  
+  // Instructor routes
+  await registerInstructorRoutes(server, services.storageAdapter as any, services.sessionOrchestrator);
+  
+  // Learner routes
+  await registerLearnerRoutes(server, services.storageAdapter as any);
+  
+  // Dashboard routes
+  await registerDashboardRoutes(server, services.storageAdapter as any);
 
   // Health check endpoint
   server.get('/health', async (request: FastifyRequest, reply: FastifyReply) => {

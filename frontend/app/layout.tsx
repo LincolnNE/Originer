@@ -30,7 +30,15 @@ export default function RootLayout({ children }: RootLayoutProps) {
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>ORIGINER - AI Instructor Platform</title>
       </head>
-      <body style={{ margin: 0, padding: 0 }}>
+      <body style={{ 
+        margin: 0, 
+        padding: 0,
+        fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        WebkitFontSmoothing: 'antialiased',
+        MozOsxFontSmoothing: 'grayscale',
+        backgroundColor: '#ffffff',
+        color: '#1a1a1a'
+      }}>
         {/* TODO: Add providers when ready */}
         {/* <AppStateMachineProvider>
           <SessionProvider> */}

@@ -44,48 +44,15 @@ export class ResponseValidator {
     const violations: ValidationViolation[] = [];
 
     // Critical checks (fail-fast)
-    // TODO: Check for hallucination (out-of-scope knowledge)
-    // - Compare response content against session.subject and session.topic
-    // - Flag concepts not in scope
-    // - Check against learnerMemory for verified knowledge
-
-    // TODO: Check for overly confident incorrect explanations
-    // - Detect definitive statements ("always", "never", "definitely")
-    // - Flag potentially incorrect information
-    // - Check against known correct information if available
-
-    // TODO: Check safety constraints compliance
-    // - Validate against instructorProfile.safetyConstraints
-    // - Check for inappropriate content
-    // - Verify content policy compliance
+    violations.push(...this.checkSystemReferences(params.response));
+    violations.push(...this.checkSafetyConstraints(params.response, params.instructorProfile));
 
     // High-severity checks
-    // TODO: Check for instructor style deviation
-    // - Compare against instructorProfile.teachingPatterns
-    // - Verify guidanceStyle consistency
-    // - Check responseStructure compliance
-    // - Detect tone/style mismatches
-
-    // TODO: Check for direct answer giving
-    // - Detect direct answers to questions
-    // - Flag solutions provided without guidance
-    // - Check for step-by-step solutions given directly
-
-    // TODO: Check for system references
-    // - Detect mentions of "AI", "model", "system"
-    // - Flag character breaks
-    // - Check for technical limitations mentioned
+    violations.push(...this.checkDirectAnswer(params.response, params.learnerMessage));
+    violations.push(...this.checkStyleDeviation(params.response, params.instructorProfile));
 
     // Medium-severity checks
-    // TODO: Check for verification questions
-    // - Ensure questions are present in response
-    // - Verify questions check understanding
-    // - Flag responses without questions
-
-    // TODO: Check response structure
-    // - Verify acknowledge → guide → verify structure
-    // - Check against instructorProfile.responseStructure
-    // - Ensure proper formatting
+    violations.push(...this.checkVerificationQuestions(params.response));
 
     // Determine action based on violations
     const hasCritical = violations.some(v => v.severity === 'CRITICAL');
@@ -153,12 +120,43 @@ export class ResponseValidator {
     response: string,
     learnerMessage: string
   ): ValidationViolation[] {
-    // TODO: Detect question patterns in learner message
-    // TODO: Check if response provides direct answer
-    // TODO: Look for solution patterns (numbers, formulas, step-by-step)
-    // TODO: Verify guidance questions are present
+    const violations: ValidationViolation[] = [];
+    
+    // Check if learner message is a question
+    const isQuestion = learnerMessage.includes('?') || 
+                       /^(what|how|why|when|where|who|which|can|could|should|would|is|are|do|does|did)/i.test(learnerMessage.trim());
+    
+    if (isQuestion) {
+      // Check for direct answer patterns
+      const directAnswerPatterns = [
+        /^(the answer is|the solution is|it's|it is)\s+/i,
+        /^(here's|here is)\s+(the|your)\s+(answer|solution)/i,
+        /^(you need to|you should|you must)\s+(do|write|use|implement)/i,
+      ];
+      
+      for (const pattern of directAnswerPatterns) {
+        if (pattern.test(response)) {
+          violations.push({
+            rule: 'NO_DIRECT_ANSWERS',
+            severity: 'HIGH',
+            message: 'Response provides direct answer instead of guidance',
+          });
+          break;
+        }
+      }
+      
+      // Check if response has questions (should guide, not answer)
+      const hasQuestions = response.includes('?');
+      if (!hasQuestions && response.length > 100) {
+        violations.push({
+          rule: 'MISSING_GUIDANCE_QUESTIONS',
+          severity: 'MEDIUM',
+          message: 'Response to question lacks guiding questions',
+        });
+      }
+    }
 
-    return [];
+    return violations;
   }
 
   /**
@@ -172,13 +170,30 @@ export class ResponseValidator {
     response: string,
     instructorProfile: InstructorProfile
   ): ValidationViolation[] {
-    // TODO: Compare response against instructorProfile.teachingPatterns
-    // TODO: Verify guidanceStyle consistency
-    // TODO: Check questionPatterns usage
-    // TODO: Validate correctionStyle if correction occurred
-    // TODO: Check tone and language style
+    const violations: ValidationViolation[] = [];
+    
+    // Basic check: ensure response is not too short or too long
+    if (response.length < 20) {
+      violations.push({
+        rule: 'RESPONSE_TOO_SHORT',
+        severity: 'MEDIUM',
+        message: 'Response is too brief to provide meaningful guidance',
+      });
+    }
+    
+    // Check if response maintains encouraging tone (basic check)
+    const negativePatterns = [/that's wrong/i, /you're incorrect/i, /that's not right/i];
+    const hasNegative = negativePatterns.some(p => p.test(response));
+    
+    if (hasNegative && instructorProfile.correctionStyle === 'gentle') {
+      violations.push({
+        rule: 'TONE_MISMATCH',
+        severity: 'MEDIUM',
+        message: 'Response tone does not match gentle correction style',
+      });
+    }
 
-    return [];
+    return violations;
   }
 
   /**
@@ -207,11 +222,24 @@ export class ResponseValidator {
    * @returns Violations found
    */
   private checkSystemReferences(response: string): ValidationViolation[] {
-    // TODO: Detect mentions of "AI", "model", "system", "algorithm"
-    // TODO: Flag character breaks
-    // TODO: Check for technical limitations mentioned
+    const violations: ValidationViolation[] = [];
+    const lowerResponse = response.toLowerCase();
+    
+    // Check for AI/system references
+    const systemKeywords = ['i am an ai', 'i am a model', 'as an ai', 'as a language model', 
+                           'i\'m an ai', 'i\'m a model', 'artificial intelligence', 'machine learning model'];
+    
+    for (const keyword of systemKeywords) {
+      if (lowerResponse.includes(keyword)) {
+        violations.push({
+          rule: 'NO_SYSTEM_REFERENCES',
+          severity: 'CRITICAL',
+          message: `Response contains system reference: "${keyword}"`,
+        });
+      }
+    }
 
-    return [];
+    return violations;
   }
 
   /**
@@ -221,11 +249,20 @@ export class ResponseValidator {
    * @returns Violations found
    */
   private checkVerificationQuestions(response: string): ValidationViolation[] {
-    // TODO: Detect question patterns
-    // TODO: Verify questions check understanding
-    // TODO: Flag responses without questions
+    const violations: ValidationViolation[] = [];
+    
+    // Check if response has questions
+    const questionCount = (response.match(/\?/g) || []).length;
+    
+    if (questionCount === 0 && response.length > 150) {
+      violations.push({
+        rule: 'MISSING_VERIFICATION',
+        severity: 'MEDIUM',
+        message: 'Response lacks verification questions',
+      });
+    }
 
-    return [];
+    return violations;
   }
 
   /**
@@ -258,11 +295,22 @@ export class ResponseValidator {
     response: string,
     instructorProfile: InstructorProfile
   ): ValidationViolation[] {
-    // TODO: Validate against instructorProfile.safetyConstraints
-    // TODO: Check for inappropriate content
-    // TODO: Verify content policy compliance
-    // TODO: Flag harmful instructions
+    const violations: ValidationViolation[] = [];
+    
+    // Check forbidden topics from instructor profile
+    const forbiddenTopics = instructorProfile.consistencySettings?.forbiddenTopics as string[] || [];
+    const lowerResponse = response.toLowerCase();
+    
+    for (const topic of forbiddenTopics) {
+      if (lowerResponse.includes(topic.toLowerCase())) {
+        violations.push({
+          rule: 'FORBIDDEN_TOPIC',
+          severity: 'CRITICAL',
+          message: `Response contains forbidden topic: "${topic}"`,
+        });
+      }
+    }
 
-    return [];
+    return violations;
   }
 }

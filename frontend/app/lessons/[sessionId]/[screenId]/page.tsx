@@ -139,22 +139,40 @@ export default function LessonScreenPage({ params }: LessonScreenPageProps) {
   if (!lessonState) {
     return (
       <div style={{
+        minHeight: '100vh',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        minHeight: '100vh',
-        gap: '1rem'
+        gap: '1.5rem',
+        padding: '2rem',
+        fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
       }}>
         <div style={{
-          width: '40px',
-          height: '40px',
-          border: '4px solid #f3f3f3',
-          borderTop: '4px solid #333',
+          width: '48px',
+          height: '48px',
+          border: '4px solid #e9ecef',
+          borderTop: '4px solid #0066cc',
           borderRadius: '50%',
-          animation: 'spin 1s linear infinite'
+          animation: 'spin 0.8s linear infinite'
         }} />
-        <p style={{ margin: 0, color: '#666' }}>Initializing screen...</p>
+        <div style={{ textAlign: 'center' }}>
+          <p style={{ 
+            margin: '0 0 0.5rem 0', 
+            color: '#1a1a1a',
+            fontSize: '1rem',
+            fontWeight: '500'
+          }}>
+            Loading lesson screen
+          </p>
+          <p style={{ 
+            margin: 0, 
+            color: '#666',
+            fontSize: '0.875rem'
+          }}>
+            Preparing your learning materials...
+          </p>
+        </div>
         <style>{`
           @keyframes spin {
             0% { transform: rotate(0deg); }
@@ -166,10 +184,15 @@ export default function LessonScreenPage({ params }: LessonScreenPageProps) {
   }
 
   return (
-    <ScreenRenderer
-      sessionId={sessionId}
-      screenId={screenId}
-      screenState={lessonState.uiState}
-    />
+    <div style={{
+      minHeight: '100vh',
+      fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    }}>
+      <ScreenRenderer
+        sessionId={sessionId}
+        screenId={screenId}
+        screenState={lessonState.uiState}
+      />
+    </div>
   );
 }

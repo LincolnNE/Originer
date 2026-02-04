@@ -16,52 +16,90 @@
  * - On "Start Learning" → Create session → Redirect to /lessons/[sessionId]/screen_001
  */
 
-import { redirect } from 'next/navigation';
-
-async function startSession() {
-  'use server';
-  
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
-  const apiUrl = apiBaseUrl ? `${apiBaseUrl}/api/v1/sessions` : '/api/v1/sessions';
-  
-  try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        instructorProfileId: 'default',
-        subject: 'General',
-        topic: 'Introduction',
-        learningObjective: 'Get started with learning',
-      }),
-    });
-
-    if (!response.ok) {
-      redirect('/');
-    }
-
-    const result = await response.json();
-    
-    if (result.success && result.data?.session?.id) {
-      redirect(`/lessons/${result.data.session.id}/screen_001`);
-    } else {
-      redirect('/');
-    }
-  } catch (error) {
-    redirect('/');
-  }
-}
+import { startSession } from './actions';
 
 export default function LandingPage() {
+  // Server Component - no event handlers allowed
   return (
-    <main>
-      <h1>ORIGINER</h1>
-      <p>AI Instructor Platform</p>
-      <form action={startSession}>
-        <button type="submit">Start Learning</button>
-      </form>
+    <main style={{
+      minHeight: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '2rem',
+      maxWidth: '600px',
+      margin: '0 auto',
+      fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    }}>
+      <div style={{
+        textAlign: 'center',
+        width: '100%'
+      }}>
+        <h1 style={{
+          fontSize: '3rem',
+          fontWeight: '700',
+          margin: '0 0 1rem 0',
+          color: '#1a1a1a',
+          letterSpacing: '-0.02em'
+        }}>
+          ORIGINER
+        </h1>
+        
+        <p style={{
+          fontSize: '1.25rem',
+          color: '#666',
+          margin: '0 0 3rem 0',
+          lineHeight: '1.6'
+        }}>
+          AI-powered personalized learning
+        </p>
+
+        <div style={{
+          backgroundColor: '#f8f9fa',
+          borderRadius: '12px',
+          padding: '2rem',
+          marginBottom: '2rem',
+          border: '1px solid #e9ecef'
+        }}>
+          <h2 style={{
+            fontSize: '1.125rem',
+            fontWeight: '600',
+            margin: '0 0 1rem 0',
+            color: '#1a1a1a'
+          }}>
+            Ready to learn?
+          </h2>
+          <p style={{
+            fontSize: '0.9375rem',
+            color: '#666',
+            margin: '0',
+            lineHeight: '1.6'
+          }}>
+            Start a new learning session and work through interactive lessons with personalized guidance from your AI instructor.
+          </p>
+        </div>
+
+        <form action={startSession} style={{ width: '100%' }}>
+          <button 
+            type="submit"
+            style={{
+              width: '100%',
+              padding: '1rem 2rem',
+              fontSize: '1.125rem',
+              fontWeight: '600',
+              color: '#fff',
+              backgroundColor: '#0066cc',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer'
+            }}
+            // No event handlers - Server Component
+          >
+            Start Learning
+          </button>
+        </form>
+      </div>
     </main>
   );
 }

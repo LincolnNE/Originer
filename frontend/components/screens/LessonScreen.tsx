@@ -186,7 +186,7 @@ export default function LessonScreen({ sessionId, screenId }: LessonScreenProps)
             
             {/* Instructor status indicator */}
             <div className="instructor-status">
-              <span className="instructor-activity">{instructorActivity}</span>
+              <span className="instructor-activity">{isLoading ? 'Thinking...' : 'Ready'}</span>
             </div>
           </div>
 

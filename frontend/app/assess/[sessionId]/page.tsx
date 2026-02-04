@@ -56,10 +56,84 @@ export default function AssessmentPage({ params }: PageProps) {
   // MVP: Skip assessment, redirect to first lesson screen
   useEffect(() => {
     // For MVP, skip assessment and redirect
-    router.push(`/lessons/${params.sessionId}/screen_001`);
+    const timer = setTimeout(() => {
+      router.push(`/lessons/${params.sessionId}/screen_001`);
+    }, 1500);
+    return () => clearTimeout(timer);
   }, [params.sessionId, router]);
 
-  // TODO: Implement JSX
-  // Return assessment UI when not skipping
-  return null;
+  return (
+    <main style={{
+      minHeight: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '2rem',
+      fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    }}>
+      <div style={{
+        textAlign: 'center',
+        maxWidth: '500px'
+      }}>
+        <div style={{
+          width: '64px',
+          height: '64px',
+          margin: '0 auto 1.5rem',
+          backgroundColor: '#e7f3ff',
+          borderRadius: '50%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#0066cc" strokeWidth="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        
+        <h1 style={{
+          fontSize: '1.75rem',
+          fontWeight: '600',
+          margin: '0 0 1rem 0',
+          color: '#1a1a1a'
+        }}>
+          Preparing Your Learning Path
+        </h1>
+        
+        <p style={{
+          fontSize: '1rem',
+          color: '#666',
+          margin: '0 0 2rem 0',
+          lineHeight: '1.6'
+        }}>
+          We're setting up your personalized learning experience. You'll be redirected to your first lesson in a moment.
+        </p>
+
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '0.75rem',
+          color: '#666',
+          fontSize: '0.875rem'
+        }}>
+          <div style={{
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            backgroundColor: '#0066cc',
+            animation: 'pulse 1.5s ease-in-out infinite'
+          }} />
+          <span>Loading...</span>
+        </div>
+      </div>
+      
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.3; }
+        }
+      `}</style>
+    </main>
+  );
 }

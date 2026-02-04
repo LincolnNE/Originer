@@ -34,45 +34,70 @@ export class PromptAssembler {
     messageHistory: Message[];
     currentMessage: string;
   }): Promise<string> {
-    // TODO: Load system prompts from config/prompts/system/
-    // - system.md
-    // - instructor_identity.md
-    // - teaching_rules.md
-    // - learner_context.md
-    // - response_format.md
-    // - fallback.md
+    const parts: string[] = [];
 
-    // TODO: Load instructor-specific prompts from config/prompts/instructor/
-    // Based on instructorProfile.teachingPatterns, guidanceStyle, etc.
+    // 1. Load and add system prompts
+    try {
+      const systemPrompt = await this.loadPromptFile('system/system.md');
+      parts.push(`[SYSTEM]\n${systemPrompt}\n`);
+    } catch (error) {
+      console.warn('Failed to load system.md:', error);
+    }
 
-    // TODO: Format learner context from learnerMemory
-    // - Learned concepts
-    // - Misconceptions
-    // - Strengths/weaknesses
-    // - Progress markers
-    // - Recent session summaries
+    try {
+      const instructorIdentity = await this.loadPromptFile('system/instructor_identity.md');
+      parts.push(`[INSTRUCTOR IDENTITY]\n${instructorIdentity}\n`);
+    } catch (error) {
+      console.warn('Failed to load instructor_identity.md:', error);
+    }
 
-    // TODO: Format session context
-    // - Subject, topic, learning objective
-    // - Current session state
+    try {
+      const teachingRules = await this.loadPromptFile('system/teaching_rules.md');
+      parts.push(`[TEACHING RULES]\n${teachingRules}\n`);
+    } catch (error) {
+      console.warn('Failed to load teaching_rules.md:', error);
+    }
 
-    // TODO: Format conversation history
-    // - Previous messages in order
-    // - Preserve teaching metadata
-    // - Handle context window limits (prioritize recent messages)
+    // 2. Add instructor profile context
+    parts.push(`[INSTRUCTOR PROFILE]\n`);
+    parts.push(`Name: ${params.instructorProfile.name}\n`);
+    parts.push(`Teaching Style: ${params.instructorProfile.guidanceStyle}\n`);
+    if (params.instructorProfile.teachingPatterns.length > 0) {
+      parts.push(`Teaching Patterns: ${params.instructorProfile.teachingPatterns.join(', ')}\n`);
+    }
+    parts.push(`\n`);
 
-    // TODO: Combine all components in proper order:
-    // 1. System instructions
-    // 2. Instructor identity
-    // 3. Instructor profile (teaching patterns, style)
-    // 4. Learner context
-    // 5. Session context
-    // 6. Conversation history
-    // 7. Current learner message
+    // 3. Format and add learner context
+    const learnerContext = this.formatLearnerContext(params.learnerMemory);
+    try {
+      const learnerContextTemplate = await this.loadPromptFile('system/learner_context.md');
+      parts.push(`[LEARNER CONTEXT]\n${learnerContextTemplate}\n\n${learnerContext}\n`);
+    } catch (error) {
+      parts.push(`[LEARNER CONTEXT]\n${learnerContext}\n`);
+    }
 
-    // TODO: Return assembled prompt string
+    // 4. Format and add session context
+    const sessionContext = this.formatSessionContext(params.session);
+    parts.push(`[SESSION CONTEXT]\n${sessionContext}\n`);
 
-    throw new Error('Not implemented');
+    // 5. Format and add conversation history
+    const messageHistory = this.formatMessageHistory(params.messageHistory);
+    if (messageHistory) {
+      parts.push(`[CONVERSATION HISTORY]\n${messageHistory}\n`);
+    }
+
+    // 6. Add response format guidelines
+    try {
+      const responseFormat = await this.loadPromptFile('system/response_format.md');
+      parts.push(`[RESPONSE FORMAT]\n${responseFormat}\n`);
+    } catch (error) {
+      console.warn('Failed to load response_format.md:', error);
+    }
+
+    // 7. Add current learner message
+    parts.push(`[USER QUESTION]\n${params.currentMessage}\n`);
+
+    return parts.join('\n');
   }
 
   /**
@@ -86,14 +111,19 @@ export class PromptAssembler {
     basePrompt: string,
     validationErrors: string[]
   ): Promise<string> {
-    // TODO: Load fallback.md from config/prompts/system/
+    let fallbackGuidance = '';
+    try {
+      fallbackGuidance = await this.loadPromptFile('system/fallback.md');
+    } catch (error) {
+      console.warn('Failed to load fallback.md:', error);
+      fallbackGuidance = 'Use a safe, guiding response that maintains instructor character.';
+    }
 
-    // TODO: Add validation error context to prompt
-    // Instruct LLM to avoid the specific violations
+    const errorContext = validationErrors.length > 0
+      ? `\n[VALIDATION ERRORS TO AVOID]\n${validationErrors.map(e => `- ${e}`).join('\n')}\n`
+      : '';
 
-    // TODO: Return modified prompt
-
-    throw new Error('Not implemented');
+    return `${basePrompt}\n\n[FALLBACK GUIDANCE]\n${fallbackGuidance}${errorContext}`;
   }
 
   /**
@@ -103,11 +133,17 @@ export class PromptAssembler {
    * @returns Prompt content as string
    */
   private async loadPromptFile(filePath: string): Promise<string> {
-    // TODO: Read file from config/prompts/ directory
-    // TODO: Handle file not found errors
-    // TODO: Cache loaded prompts if needed
-
-    throw new Error('Not implemented');
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    
+    const fullPath = path.join(process.cwd(), this.promptConfigPath, filePath);
+    
+    try {
+      const content = await fs.readFile(fullPath, 'utf-8');
+      return content.trim();
+    } catch (error) {
+      throw new Error(`Failed to load prompt file ${fullPath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   /**
@@ -117,14 +153,42 @@ export class PromptAssembler {
    * @returns Formatted learner context string
    */
   private formatLearnerContext(learnerMemory: LearnerMemory): string {
-    // TODO: Format learned concepts
-    // TODO: Format misconceptions (only unresolved ones)
-    // TODO: Format strengths/weaknesses
-    // TODO: Format progress markers
-    // TODO: Format recent session summaries (condensed)
-    // TODO: Keep total length within limits
+    const parts: string[] = [];
 
-    throw new Error('Not implemented');
+    // Format learned concepts
+    if (learnerMemory.learnedConcepts.length > 0) {
+      const mastered = learnerMemory.learnedConcepts.filter(c => c.masteryLevel === 'mastered');
+      const practicing = learnerMemory.learnedConcepts.filter(c => c.masteryLevel === 'practicing');
+      
+      if (mastered.length > 0) {
+        parts.push(`Mastered Concepts: ${mastered.map(c => c.concept).join(', ')}`);
+      }
+      if (practicing.length > 0) {
+        parts.push(`Practicing Concepts: ${practicing.map(c => c.concept).join(', ')}`);
+      }
+    }
+
+    // Format misconceptions (only unresolved)
+    const unresolvedMisconceptions = learnerMemory.misconceptions.filter(m => !m.resolved);
+    if (unresolvedMisconceptions.length > 0) {
+      parts.push(`Known Misconceptions: ${unresolvedMisconceptions.map(m => `${m.concept} (${m.incorrectUnderstanding})`).join('; ')}`);
+    }
+
+    // Format strengths/weaknesses
+    if (learnerMemory.strengths.length > 0) {
+      parts.push(`Strengths: ${learnerMemory.strengths.join(', ')}`);
+    }
+    if (learnerMemory.weaknesses.length > 0) {
+      parts.push(`Weak Areas: ${learnerMemory.weaknesses.join(', ')}`);
+    }
+
+    // Format recent progress markers (last 3)
+    const recentMarkers = learnerMemory.progressMarkers.slice(-3);
+    if (recentMarkers.length > 0) {
+      parts.push(`Recent Progress: ${recentMarkers.map(m => m.marker).join(', ')}`);
+    }
+
+    return parts.length > 0 ? parts.join('\n') : 'No prior learning history available.';
   }
 
   /**
@@ -134,10 +198,20 @@ export class PromptAssembler {
    * @returns Formatted session context string
    */
   private formatSessionContext(session: Session): string {
-    // TODO: Format subject, topic, learning objective
-    // TODO: Include session state if relevant
+    const parts: string[] = [];
+    
+    if (session.subject) {
+      parts.push(`Subject: ${session.subject}`);
+    }
+    if (session.topic) {
+      parts.push(`Topic: ${session.topic}`);
+    }
+    if (session.learningObjective) {
+      parts.push(`Learning Objective: ${session.learningObjective}`);
+    }
+    parts.push(`Session State: ${session.sessionState}`);
 
-    throw new Error('Not implemented');
+    return parts.join('\n');
   }
 
   /**
@@ -151,12 +225,40 @@ export class PromptAssembler {
     messages: Message[],
     maxTokens?: number
   ): string {
-    // TODO: Format messages in chronological order
-    // TODO: Include role, content, and relevant teaching metadata
-    // TODO: Handle token limits (prioritize recent messages)
-    // TODO: Summarize older messages if needed
+    if (messages.length === 0) {
+      return '';
+    }
 
-    throw new Error('Not implemented');
+    // Sort by timestamp
+    const sortedMessages = [...messages].sort((a, b) => 
+      a.timestamp.getTime() - b.timestamp.getTime()
+    );
+
+    // Limit to recent messages if maxTokens specified (rough estimate: 4 chars per token)
+    let messagesToInclude = sortedMessages;
+    if (maxTokens) {
+      const maxChars = maxTokens * 4;
+      let totalChars = 0;
+      const recentMessages: Message[] = [];
+      
+      // Start from most recent and work backwards
+      for (let i = sortedMessages.length - 1; i >= 0; i--) {
+        const msg = sortedMessages[i];
+        const msgChars = msg.content.length + 50; // Rough estimate including formatting
+        if (totalChars + msgChars > maxChars && recentMessages.length > 0) {
+          break;
+        }
+        recentMessages.unshift(msg);
+        totalChars += msgChars;
+      }
+      messagesToInclude = recentMessages;
+    }
+
+    // Format messages
+    return messagesToInclude.map(msg => {
+      const roleLabel = msg.role === 'instructor' ? 'Instructor' : 'Learner';
+      return `${roleLabel}: ${msg.content}`;
+    }).join('\n\n');
   }
 
   /**
@@ -166,10 +268,7 @@ export class PromptAssembler {
    * @returns Approximate token count
    */
   private estimateTokens(text: string): number {
-    // TODO: Implement token estimation
     // Simple approximation: ~4 characters per token
-    // Or use a tokenizer library if available
-
-    throw new Error('Not implemented');
+    return Math.ceil(text.length / 4);
   }
 }

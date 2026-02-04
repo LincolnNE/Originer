@@ -12,6 +12,8 @@ import { PromptAssembler } from '../../backend/core/PromptAssembler';
 import { ResponseValidator } from '../../backend/core/ResponseValidator';
 import { LLMAdapter } from '../../backend/adapters/llm/types';
 import { StorageAdapter } from '../../backend/adapters/storage/types';
+import { DatabaseStorageAdapter } from '../../backend/adapters/storage/database';
+import { OllamaAdapter } from '../../backend/adapters/llm/ollama';
 
 export interface Services {
   sessionOrchestrator: SessionOrchestrator;
@@ -29,47 +31,22 @@ export interface Services {
  *                                      → ResponseValidator
  */
 export function createServices(): Services {
-  // TODO: Initialize adapters from config/environment
-  // For now, placeholders that will throw errors until implemented
-  
-  const storageAdapter: StorageAdapter = {
-    loadSession: async () => {
-      throw new Error('StorageAdapter.loadSession not implemented');
-    },
-    saveSession: async () => {
-      throw new Error('StorageAdapter.saveSession not implemented');
-    },
-    updateSession: async () => {
-      throw new Error('StorageAdapter.updateSession not implemented');
-    },
-    loadInstructorProfile: async () => {
-      throw new Error('StorageAdapter.loadInstructorProfile not implemented');
-    },
-    loadLearnerMemory: async () => {
-      throw new Error('StorageAdapter.loadLearnerMemory not implemented');
-    },
-    saveLearnerMemory: async () => {
-      throw new Error('StorageAdapter.saveLearnerMemory not implemented');
-    },
-    loadMessage: async () => {
-      throw new Error('StorageAdapter.loadMessage not implemented');
-    },
-    loadMessages: async () => {
-      throw new Error('StorageAdapter.loadMessages not implemented');
-    },
-    saveMessage: async () => {
-      throw new Error('StorageAdapter.saveMessage not implemented');
-    },
-  };
+  // Initialize storage adapter (SQLite for MVP)
+  const dbPath = process.env.DATABASE_PATH || ':memory:';
+  const storageAdapter = new DatabaseStorageAdapter({
+    type: 'sqlite',
+    connectionString: dbPath,
+  });
 
-  const llmAdapter: LLMAdapter = {
-    generate: async () => {
-      throw new Error('LLMAdapter.generate not implemented');
-    },
-    async *generateStream() {
-      throw new Error('LLMAdapter.generateStream not implemented');
-    },
-  };
+  // Initialize LLM adapter (Ollama for local inference)
+  const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+  const ollamaModel = process.env.OLLAMA_MODEL || 'llama3.2';
+  const llmAdapter = new OllamaAdapter({
+    baseUrl: ollamaBaseUrl,
+    model: ollamaModel,
+    temperature: parseFloat(process.env.LLM_TEMPERATURE || '0.7'),
+    maxTokens: parseInt(process.env.LLM_MAX_TOKENS || '2048', 10),
+  });
 
   // Initialize core services
   const promptAssembler = new PromptAssembler(
