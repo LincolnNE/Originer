@@ -24,8 +24,18 @@ This guide explains how to deploy the ORIGINER platform to Vercel.
 
 ### 2. Configure Build Settings
 
-Vercel should auto-detect the Next.js frontend. The `vercel.json` configuration handles:
-- Frontend build from `/frontend` directory
+**CRITICAL: Set Root Directory**
+
+Since the Next.js app is in the `/frontend` subdirectory, you MUST configure the root directory in Vercel:
+
+1. Go to **Project Settings** → **Build and Deployments** → **General**
+2. Find the **Root Directory** setting
+3. Click **Edit** and set it to: `frontend`
+4. Click **Save**
+
+This tells Vercel where your Next.js app is located. Without this, Vercel won't be able to serve your routes correctly.
+
+The `vercel.json` configuration handles:
 - API routes proxied to serverless functions
 - Environment variables
 
