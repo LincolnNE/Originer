@@ -100,7 +100,7 @@ class InstructorGateway {
         return this.generateMockProblemPresentation(input, responseId, timestamp);
       
       case 'provide_feedback':
-        return this.generateMockFeedback(input, responseId, timestamp);
+        return this.generateMockAssessment(input, responseId, timestamp);
       
       case 'give_hint':
         return this.generateMockHint(input, responseId, timestamp);
@@ -160,21 +160,34 @@ class InstructorGateway {
   }
 
   /**
-   * Generate Mock Feedback
+   * Generate Mock Assessment
+   * 
+   * Returns ASSESSMENT type output that determines screen lock/advance behavior.
    */
-  private generateMockFeedback(
+  private generateMockAssessment(
     input: InstructorInput,
     responseId: string,
     timestamp: Date
   ): InstructorOutput {
     const data = input.actionData as any;
     const answer = data.learnerAnswer || '';
-    const isCorrect = answer.toLowerCase().includes('5') || answer === '5';
+    const attemptNumber = data.attemptNumber || 1;
+    
+    // Simple assessment logic: check if answer contains '5' or equals '5'
+    const isCorrect = answer.toLowerCase().includes('5') || answer === '5' || answer.trim() === 'x=5';
+    const assessment: 'correct' | 'partially_correct' | 'incorrect' | 'needs_clarification' = 
+      isCorrect ? 'correct' : 'incorrect';
+    
+    // Determine if can proceed (correct answer) and if screen should be locked (incorrect)
+    const canProceed = isCorrect;
+    const screenLocked = !isCorrect;
+    const masteryScore = isCorrect ? 85 : 45; // Mock mastery score
+    const masteryThreshold = 80;
 
     return {
-      type: 'feedback',
+      type: 'assessment',
       content: {
-        assessment: isCorrect ? 'correct' : 'incorrect',
+        assessment,
         feedbackText: isCorrect
           ? 'Great job! You correctly solved the equation. You isolated x by subtracting 5 from both sides and then dividing by 2.'
           : 'Not quite right. Try isolating x step by step. First, subtract 5 from both sides of the equation.',
@@ -183,9 +196,11 @@ class InstructorGateway {
         suggestions: isCorrect
           ? []
           : ['Start by subtracting 5 from both sides', 'Then divide both sides by 2'],
-        nextSteps: isCorrect
-          ? ['You can proceed to the next problem']
-          : ['Try revising your answer', 'Consider the steps: subtract 5, then divide by 2'],
+        canProceed,
+        screenLocked,
+        lockReason: screenLocked ? 'Answer is incorrect. Please revise and try again.' : undefined,
+        masteryScore,
+        masteryThreshold,
       },
       metadata: {
         responseId,
@@ -199,7 +214,7 @@ class InstructorGateway {
       },
       nextActions: [
         { action: 'revise_answer', label: 'Revise Answer', enabled: !isCorrect },
-        { action: 'proceed', label: 'Proceed', enabled: isCorrect },
+        { action: 'proceed', label: 'Proceed to Next Screen', enabled: isCorrect },
         { action: 'request_hint', label: 'Request Hint', enabled: true },
       ],
     };

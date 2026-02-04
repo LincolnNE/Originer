@@ -20,6 +20,8 @@ export function useLessonState() {
     transitionState,
     setAvailableScreens,
     setLockedScreens,
+    lockScreen,
+    unlockScreen,
   } = useLessonStateStore();
 
   /**
@@ -69,6 +71,8 @@ export function useLessonState() {
     transitionState,
     setAvailableScreens,
     setLockedScreens,
+    lockScreen,
+    unlockScreen,
     canPerformAction,
     getBlockingReason,
   };

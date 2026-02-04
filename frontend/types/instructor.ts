@@ -148,6 +148,7 @@ export interface InstructorOutput {
 export type InstructorResponseType =
   | 'problem_presentation'  // Presenting a problem
   | 'feedback'              // Feedback on answer
+  | 'assessment'           // Assessment result (determines screen lock/advance)
   | 'hint'                  // Hint provided
   | 'answer'                // Answer to question
   | 'guidance'              // General guidance
@@ -162,6 +163,7 @@ export type InstructorResponseType =
 export type InstructorContent =
   | ProblemPresentationContent
   | FeedbackContent
+  | AssessmentContent
   | HintContent
   | AnswerContent
   | GuidanceContent
@@ -183,6 +185,19 @@ export interface FeedbackContent {
   weaknesses: string[];
   suggestions: string[];
   nextSteps: string[];
+}
+
+export interface AssessmentContent {
+  assessment: 'correct' | 'partially_correct' | 'incorrect' | 'needs_clarification';
+  feedbackText: string;
+  strengths: string[];
+  weaknesses: string[];
+  suggestions: string[];
+  canProceed: boolean;  // Whether learner can proceed to next screen
+  screenLocked: boolean; // Whether current screen is locked
+  lockReason?: string;  // Reason for locking (if applicable)
+  masteryScore?: number; // Mastery score (0-100)
+  masteryThreshold: number; // Required mastery threshold
 }
 
 export interface HintContent {

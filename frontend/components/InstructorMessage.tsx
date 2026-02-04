@@ -190,6 +190,77 @@ function renderContent(type: InstructorResponseType, content: any) {
         </div>
       );
 
+    case 'assessment':
+      return (
+        <div>
+          <div style={{
+            marginBottom: '1rem',
+            padding: '0.75rem',
+            backgroundColor: getAssessmentColor(content.assessment),
+            borderRadius: '4px',
+            fontWeight: '500',
+            border: content.screenLocked ? '2px solid #dc3545' : 'none'
+          }}>
+            Assessment: {content.assessment.replace('_', ' ').toUpperCase()}
+            {content.screenLocked && (
+              <div style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: '#721c24' }}>
+                ⚠ Screen Locked
+              </div>
+            )}
+            {content.canProceed && (
+              <div style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: '#155724' }}>
+                ✓ Can Proceed to Next Screen
+              </div>
+            )}
+          </div>
+          <p style={{ margin: '0 0 1rem 0', fontSize: '1rem', lineHeight: '1.6' }}>
+            {content.feedbackText}
+          </p>
+          {content.lockReason && (
+            <div style={{
+              marginBottom: '1rem',
+              padding: '0.75rem',
+              backgroundColor: '#f8d7da',
+              borderRadius: '4px',
+              border: '1px solid #f5c6cb',
+              color: '#721c24'
+            }}>
+              <strong>Lock Reason:</strong> {content.lockReason}
+            </div>
+          )}
+          {content.masteryScore !== undefined && (
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>Mastery Score:</strong> {content.masteryScore}% 
+              {content.masteryScore >= content.masteryThreshold ? ' ✓' : ` (need ${content.masteryThreshold}%)`}
+            </div>
+          )}
+          {content.strengths && content.strengths.length > 0 && (
+            <div style={{ marginBottom: '1rem' }}>
+              <strong>Strengths:</strong>
+              <ul style={{ margin: '0.5rem 0 0 1.5rem', padding: 0 }}>
+                {content.strengths.map((strength: string, index: number) => (
+                  <li key={index} style={{ color: '#2e7d32' }}>
+                    ✓ {strength}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {content.suggestions && content.suggestions.length > 0 && (
+            <div>
+              <strong>Suggestions:</strong>
+              <ul style={{ margin: '0.5rem 0 0 1.5rem', padding: 0 }}>
+                {content.suggestions.map((suggestion: string, index: number) => (
+                  <li key={index}>
+                    {suggestion}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      );
+
     case 'hint':
       return (
         <div>
@@ -379,6 +450,7 @@ function getResponseTypeLabel(type: InstructorResponseType): string {
   const labels: Record<InstructorResponseType, string> = {
     problem_presentation: 'Problem Presentation',
     feedback: 'Feedback',
+    assessment: 'Assessment Result',
     hint: 'Hint',
     answer: 'Answer',
     guidance: 'Guidance',

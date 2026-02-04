@@ -16,9 +16,11 @@
 
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useInstructor } from '../../hooks/useInstructor';
+import { useLessonState } from '../../state/hooks/useLessonState';
 import InstructorMessage from '../InstructorMessage';
+import { InstructorOutput } from '../../types/instructor';
 
 interface LessonScreenProps {
   sessionId: string;
@@ -28,10 +30,19 @@ interface LessonScreenProps {
 export default function LessonScreen({ sessionId, screenId }: LessonScreenProps) {
   // Instructor hook for AI interactions
   const { output, isLoading, processInput } = useInstructor();
+  
+  // Lesson state hook
+  const { lessonState, transitionState, lockScreen, unlockScreen } = useLessonState();
+  
+  // Local state for answer input
+  const [answerValue, setAnswerValue] = useState('');
+  const [submittedAnswer, setSubmittedAnswer] = useState('');
+  const [currentAttempt, setCurrentAttempt] = useState(1);
+  const [assessmentResult, setAssessmentResult] = useState<InstructorOutput | null>(null);
 
   // Load problem presentation on mount
   useEffect(() => {
-    if (!output) {
+    if (!output || output.type !== 'problem_presentation') {
       processInput({
         sessionId,
         screenId,
@@ -46,14 +57,76 @@ export default function LessonScreen({ sessionId, screenId }: LessonScreenProps)
     }
   }, [sessionId, screenId, output, processInput]);
 
-  // Placeholder state (will be replaced with actual state management)
-  type ScreenState = 'IN_LESSON' | 'AWAITING_FEEDBACK' | 'REVIEWING';
-  const currentState = 'IN_LESSON' as ScreenState;
-  const instructorActivity = output?.type === 'problem_presentation' 
-    ? 'Presenting problem' 
-    : output?.type === 'feedback'
-    ? 'Providing feedback'
-    : 'Ready';
+  // Handle assessment result
+  useEffect(() => {
+    if (output?.type === 'assessment') {
+      setAssessmentResult(output);
+      const content = output.content as any;
+      
+      // Update state based on assessment result
+      if (content.screenLocked) {
+        // Lock screen
+        lockScreen(screenId, content.lockReason);
+        transitionState('processing');
+        // After processing, allow user to revise
+        setTimeout(() => {
+          transitionState('ready');
+        }, 1000);
+      } else if (content.canProceed) {
+        // Unlock screen and allow proceeding
+        unlockScreen(screenId);
+        transitionState('processing');
+        // After processing, show success state
+        setTimeout(() => {
+          transitionState('ready');
+        }, 1000);
+      }
+    }
+  }, [output, screenId, lockScreen, unlockScreen, transitionState]);
+
+  // Submit handler
+  const handleSubmit = useCallback(async () => {
+    if (!answerValue.trim()) {
+      return; // Don't submit empty answers
+    }
+
+    // Transition to submitting state
+    transitionState('submitting');
+    setSubmittedAnswer(answerValue);
+
+    try {
+      // Trigger assessment via InstructorGateway
+      await processInput({
+        sessionId,
+        screenId,
+        action: 'provide_feedback',
+        actionData: {
+          learnerAnswer: answerValue,
+          attemptNumber: currentAttempt,
+          timeSpent: 120, // TODO: Track actual time spent
+        },
+      });
+      
+      // State transitions are handled in the useEffect above
+    } catch (error) {
+      console.error('Submit error:', error);
+      transitionState('error');
+    }
+  }, [answerValue, sessionId, screenId, currentAttempt, processInput, transitionState]);
+
+  // Revise handler
+  const handleRevise = useCallback(() => {
+    setAnswerValue('');
+    setSubmittedAnswer('');
+    setAssessmentResult(null);
+    transitionState('ready');
+  }, [transitionState]);
+
+  // Determine current UI state from lessonState
+  const uiState = lessonState?.uiState || 'idle';
+  const isSubmitting = uiState === 'submitting';
+  const isProcessing = uiState === 'processing';
+  const hasAssessment = assessmentResult?.type === 'assessment';
   
   // Extract content from instructor output
   const problemStatement = output?.type === 'problem_presentation' 
@@ -62,26 +135,35 @@ export default function LessonScreen({ sessionId, screenId }: LessonScreenProps)
   const instructions = output?.type === 'problem_presentation'
     ? (output.content as any).instructions
     : 'Type your answer in the box below.';
-  const feedbackContent = output?.type === 'feedback'
-    ? (output.content as any).feedbackText
-    : '';
-  const answerValue = ''; // Current answer input
-  const submittedAnswer = ''; // Submitted answer (for AWAITING_FEEDBACK/REVIEWING)
+  
+  // Determine action availability from lessonState
+  const canSubmit = lessonState?.interactionAvailability.canSubmit && 
+                    (uiState === 'ready' || uiState === 'interacting') &&
+                    answerValue.trim().length > 0 &&
+                    !isSubmitting &&
+                    !isProcessing;
+  const canRequestHint = lessonState?.interactionAvailability.canRequestHelp || false;
+  const canProceed = hasAssessment && 
+                     (assessmentResult.content as any).canProceed &&
+                     uiState === 'ready';
+  const canRevise = hasAssessment && 
+                    (assessmentResult.content as any).screenLocked &&
+                    uiState === 'ready';
+  
+  // Extract assessment data
+  const assessmentContent = hasAssessment ? (assessmentResult.content as any) : null;
+  const masteryScore = assessmentContent?.masteryScore;
+  const masteryThreshold = assessmentContent?.masteryThreshold || 80;
+  const nextScreenUnlocked = canProceed;
+  
+  // Placeholder values (will be replaced with actual state)
   const screenProgress = 40; // 0-100
   const sessionProgress = 60; // 0-100
-  const currentAttempt = 1;
   const maxAttempts = 5;
   const timeSpent = 120; // seconds
-  const masteryScore = 65; // 0-100, null if not calculated
-  const masteryThreshold = 80;
   const conceptsDemonstrated: string[] = [];
-  const nextScreenUnlocked = false;
-  const unlockRequirements = ['Complete 3 more attempts', 'Achieve 80% mastery'];
+  const unlockRequirements = canProceed ? [] : ['Complete this screen correctly'];
   const blockingConstraints: string[] = [];
-  const canSubmit = false; // Disabled by default
-  const canRequestHint = false; // Disabled by default
-  const canProceed = false; // Disabled by default
-  const canRevise = false; // Disabled by default
 
   return (
     <div className="lesson-screen">
@@ -163,11 +245,17 @@ export default function LessonScreen({ sessionId, screenId }: LessonScreenProps)
               <textarea
                 id="answer-input"
                 className="answer-input"
-                value={currentState === 'AWAITING_FEEDBACK' || currentState === 'REVIEWING' 
+                value={hasAssessment && submittedAnswer 
                   ? submittedAnswer 
                   : answerValue}
-                disabled={currentState === 'AWAITING_FEEDBACK'}
-                readOnly={currentState === 'REVIEWING' && !canRevise}
+                onChange={(e) => {
+                  setAnswerValue(e.target.value);
+                  if (uiState === 'idle') {
+                    transitionState('interacting');
+                  }
+                }}
+                disabled={isSubmitting || isProcessing || (hasAssessment && assessmentContent?.screenLocked && !canRevise)}
+                readOnly={hasAssessment && assessmentContent?.screenLocked && !canRevise}
                 placeholder="Type your answer here..."
                 rows={4}
                 aria-label="Answer input"
@@ -184,11 +272,12 @@ export default function LessonScreen({ sessionId, screenId }: LessonScreenProps)
               <button
                 type="button"
                 className="submit-button"
-                disabled={!canSubmit || currentState !== 'IN_LESSON'}
+                disabled={!canSubmit}
+                onClick={handleSubmit}
                 aria-label="Submit answer"
                 aria-describedby="submit-button-help"
               >
-                {currentState === 'AWAITING_FEEDBACK' ? 'Submitting...' : 'Submit Answer'}
+                {isSubmitting ? 'Submitting...' : 'Submit Answer'}
               </button>
               <div id="submit-button-help" className="button-help">
                 {!canSubmit && blockingConstraints.length > 0 && (
@@ -208,31 +297,36 @@ export default function LessonScreen({ sessionId, screenId }: LessonScreenProps)
                 Request Hint
               </button>
 
-              {/* Revise answer button (visible in REVIEWING state) */}
-              {currentState === 'REVIEWING' && (
+              {/* Revise answer button (visible when assessment shows screen locked) */}
+              {hasAssessment && assessmentContent?.screenLocked && (
                 <button
                   type="button"
                   className="revise-button"
                   disabled={!canRevise}
+                  onClick={handleRevise}
                   aria-label="Revise answer"
                 >
                   Revise Answer
                 </button>
               )}
 
-              {/* Next button (visible in REVIEWING state) */}
-              {currentState === 'REVIEWING' && (
+              {/* Next button (visible when assessment allows proceeding) */}
+              {hasAssessment && assessmentContent?.canProceed && (
                 <button
                   type="button"
                   className="next-button"
                   disabled={!canProceed}
                   aria-label="Proceed to next screen"
                   aria-describedby="next-button-help"
+                  onClick={() => {
+                    // TODO: Navigate to next screen
+                    console.log('Navigate to next screen');
+                  }}
                 >
                   Next Screen
                 </button>
               )}
-              {currentState === 'REVIEWING' && !canProceed && (
+              {hasAssessment && !assessmentContent?.canProceed && (
                 <div id="next-button-help" className="button-help">
                   <span className="blocking-reason">
                     Cannot proceed: {unlockRequirements.join(', ')}

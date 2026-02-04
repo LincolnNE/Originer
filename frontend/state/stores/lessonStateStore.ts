@@ -36,4 +36,45 @@ export const useLessonStateStore = create<LessonStateStore>((set) => ({
   setAvailableScreens: (screens) => set({ availableScreens: screens }),
   
   setLockedScreens: (screens) => set({ lockedScreens: screens }),
+  
+  lockScreen: (screenId: string, reason?: string) => set((state) => {
+    if (!state.lockedScreens.includes(screenId)) {
+      const newLockedScreens = [...state.lockedScreens, screenId];
+      // Update lessonState navigationState if current screen
+      if (state.lessonState && state.currentScreenId === screenId) {
+        return {
+          lockedScreens: newLockedScreens,
+          lessonState: {
+            ...state.lessonState,
+            navigationState: {
+              ...state.lessonState.navigationState,
+              canGoForward: false,
+              lockedReason: reason || 'Screen is locked',
+            },
+          },
+        };
+      }
+      return { lockedScreens: newLockedScreens };
+    }
+    return state;
+  }),
+  
+  unlockScreen: (screenId: string) => set((state) => {
+    const newLockedScreens = state.lockedScreens.filter(id => id !== screenId);
+    // Update lessonState navigationState if current screen
+    if (state.lessonState && state.currentScreenId === screenId) {
+      return {
+        lockedScreens: newLockedScreens,
+        lessonState: {
+          ...state.lessonState,
+          navigationState: {
+            ...state.lessonState.navigationState,
+            canGoForward: true,
+            lockedReason: undefined,
+          },
+        },
+      };
+    }
+    return { lockedScreens: newLockedScreens };
+  }),
 }));

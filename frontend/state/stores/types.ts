@@ -60,6 +60,8 @@ export interface LessonStateStore {
   transitionState: (newState: LessonState['uiState']) => void;
   setAvailableScreens: (screens: string[]) => void;
   setLockedScreens: (screens: string[]) => void;
+  lockScreen: (screenId: string, reason?: string) => void;
+  unlockScreen: (screenId: string) => void;
 }
 
 // Progress Store
