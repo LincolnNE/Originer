@@ -125,10 +125,10 @@ export default function LessonScreenPage({ params }: LessonScreenPageProps) {
 
   // Transition to IN_LESSON state if not already there
   useEffect(() => {
-    if (sessionState === 'active' && currentState !== 'IN_LESSON') {
+    if (sessionState === 'active' && currentSessionId === sessionId && currentState !== 'IN_LESSON') {
       transitionTo('IN_LESSON');
     }
-  }, [sessionState, currentState, transitionTo]);
+  }, [sessionState, currentSessionId, sessionId, currentState, transitionTo]);
 
   // Handle invalid session states
   useEffect(() => {

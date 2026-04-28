@@ -65,8 +65,10 @@ export default function SessionOverviewPage({ params }: PageProps) {
       return;
     }
 
-    if (sessionState === 'active') {
-      // Determine first available screen
+    if (sessionState === 'active' && currentSessionId === params.sessionId) {
+      // Must match the URL: first paint after navigating sessions can still have the prior
+      // session as `active`; redirecting on stale `active` would send the user to the new
+      // route with the wrong `currentSessionId` in the store.
       const firstScreen = availableScreens.length > 0 
         ? availableScreens[0] 
         : 'screen_001'; // Mock default
