@@ -12,6 +12,7 @@
  */
 
 import { ReactNode } from 'react';
+import { SessionRouteErrorReset } from './SessionRouteErrorReset';
 // import { useProgress } from '@/state/hooks/useProgress';
 
 interface LayoutProps {
@@ -31,6 +32,7 @@ export default function SessionLayout({ children, params }: LayoutProps) {
   
   return (
     <div>
+      <SessionRouteErrorReset />
       {/* TODO: Session progress bar */}
       {/* TODO: Navigation sidebar (future) */}
       {children}

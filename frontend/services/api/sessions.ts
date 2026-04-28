@@ -5,26 +5,27 @@
  */
 
 import { apiClient } from './client';
-import {
-  CreateSessionRequest,
-  CreateSessionResponse,
-  GetSessionResponse,
-  ApiResponse,
-} from '../../types/api';
+import { CreateSessionRequest, GetSessionResponse, ApiResponse } from '../../types/api';
 
 export const sessionsApi = {
   /**
-   * Create a new session
+   * Create a new session (POST /api/v1/sessions/start) then load full session (GET /api/v1/sessions/:id).
    */
-  async createSession(request: CreateSessionRequest): Promise<CreateSessionResponse> {
-    const response = await apiClient.post<ApiResponse<CreateSessionResponse>>(
-      '/api/v1/sessions',
-      request
+  async createSession(request: CreateSessionRequest): Promise<GetSessionResponse> {
+    const start = await apiClient.post<ApiResponse<{ session_id: string }>>(
+      '/api/v1/sessions/start',
+      {
+        instructor_id: request.instructorProfileId,
+        learner_id: request.learnerId ?? 'anonymous',
+        subject: request.subject,
+        topic: request.topic,
+        learning_objective: request.learningObjective,
+      }
     );
-    if (!response.success || !response.data) {
-      throw new Error(response.error?.message || 'Failed to create session');
+    if (!start.success || !start.data?.session_id) {
+      throw new Error(start.error?.message || 'Failed to create session');
     }
-    return response.data;
+    return sessionsApi.getSession(start.data.session_id);
   },
 
   /**

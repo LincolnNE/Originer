@@ -40,28 +40,27 @@ interface PageProps {
 
 export default function SessionOverviewPage({ params }: PageProps) {
   const router = useRouter();
-  const { sessionState, session, loadSession, setSessionState } = useSession();
+  const { currentSessionId, pendingSessionId, sessionState, session, loadSession } = useSession();
   const { availableScreens } = useLessonState();
 
-  // Initialize session state on mount
+  // Load (or re-load) when the URL does not match the loaded or in-flight session.
   useEffect(() => {
-    if (sessionState === 'initializing' && params.sessionId) {
-      // Mock: Initialize session state (no backend call yet)
-      loadSession(params.sessionId).catch(() => {
-        // Mock fallback: set active state
-        setSessionState('active');
-      });
-    }
-  }, [params.sessionId, sessionState, loadSession, setSessionState]);
+    // Only skip for completed when the store still refers to *this* route; otherwise a prior
+    // session's `completed` state would block loading a new session from the URL.
+    if (!params.sessionId || (sessionState === 'completed' && currentSessionId === params.sessionId)) return;
+    if (sessionState === 'loading' && pendingSessionId === params.sessionId) return;
+    if (currentSessionId === params.sessionId && session) return;
+    void loadSession(params.sessionId);
+  }, [params.sessionId, currentSessionId, pendingSessionId, sessionState, session, loadSession]);
 
   // Handle session state-based routing
   useEffect(() => {
-    if (sessionState === 'error') {
+    if (sessionState === 'error' && currentSessionId === params.sessionId) {
       router.push('/');
       return;
     }
 
-    if (sessionState === 'completed') {
+    if (sessionState === 'completed' && currentSessionId === params.sessionId) {
       router.push(`/lessons/${params.sessionId}/complete`);
       return;
     }
@@ -75,7 +74,7 @@ export default function SessionOverviewPage({ params }: PageProps) {
       router.push(`/lessons/${params.sessionId}/${firstScreen}`);
       return;
     }
-  }, [sessionState, params.sessionId, availableScreens, router]);
+  }, [sessionState, currentSessionId, params.sessionId, availableScreens, router]);
 
   // Show loading while initializing
   if (sessionState === 'initializing' || sessionState === 'loading') {
