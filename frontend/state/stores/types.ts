@@ -42,7 +42,10 @@ export interface SessionStore {
   setSessionState: (state: SessionState) => void;
   clearSession: () => void;
   updateSession: (updates: Partial<NonNullable<SessionStore['session']>>) => void;
-  setError: (error: string | null) => void;
+  setError: (
+    error: string | null,
+    options?: { attemptedSessionId?: string }
+  ) => void;
 }
 
 // Lesson State Store
