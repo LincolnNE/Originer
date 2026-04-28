@@ -7,7 +7,7 @@
     "build": "tsc",
     "dev": "ts-node src/server.ts",
     "start": "node dist/src/server.js",
-    "test": "jest"
+    "test": "tsc -p tsconfig.tests.json && node --test .test-dist/tests/storage/saveSession-fk.test.js --test-reporter=spec"
   },
   "keywords": [],
   "author": "",
