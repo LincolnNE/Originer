@@ -54,7 +54,7 @@ export default function SessionOverviewPage({ params }: PageProps) {
 
   // Handle session state-based routing
   useEffect(() => {
-    if (sessionState === 'error') {
+    if (sessionState === 'error' && currentSessionId === params.sessionId) {
       router.push('/');
       return;
     }

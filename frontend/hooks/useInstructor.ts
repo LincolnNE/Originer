@@ -59,6 +59,8 @@ export function useInstructor(): UseInstructorReturn {
     instructorInteractionSequence += 1;
     setOutput(null);
     setError(null);
+    // In-flight `processInput` will hit a stale token and skip `finally`; avoid a stuck loading UI.
+    setIsLoading(false);
   }, []);
 
   return {

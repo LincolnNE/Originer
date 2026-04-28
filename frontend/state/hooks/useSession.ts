@@ -5,7 +5,6 @@
  * Wraps sessionStore with React-specific logic.
  */
 
-import { useEffect } from 'react';
 import { useSessionStore } from '../stores/sessionStore';
 import { sessionsApi } from '../../services/api/sessions';
 
@@ -35,12 +34,30 @@ export function useSession() {
     setSessionState('loading');
     setPendingSessionId(sessionId);
     setError(null);
+    const reconcileStateIfStale = () => {
+      if (loadToken === sessionLoadSequence) return;
+      const { session: s, currentSessionId: cid, pendingSessionId: pend, sessionState: st } =
+        useSessionStore.getState();
+      // A newer in-flight `loadSession` already updated `loading` / `pendingSessionId`; do not clobber it.
+      if (pend) return;
+      if (cid && s && cid === sessionId) {
+        setSessionState(s.sessionState === 'completed' ? 'completed' : 'active');
+      } else if (st === 'loading') {
+        setSessionState('initializing');
+      }
+    };
     try {
       const response = await sessionsApi.getSession(sessionId);
-      if (loadToken !== sessionLoadSequence) return;
+      if (loadToken !== sessionLoadSequence) {
+        reconcileStateIfStale();
+        return;
+      }
       setSession(response.session);
     } catch (err: any) {
-      if (loadToken !== sessionLoadSequence) return;
+      if (loadToken !== sessionLoadSequence) {
+        reconcileStateIfStale();
+        return;
+      }
       setError(err.message || 'Failed to load session', {
         attemptedSessionId: sessionId,
       });
