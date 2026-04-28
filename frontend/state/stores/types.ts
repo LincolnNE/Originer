@@ -68,6 +68,8 @@ export interface LessonStateStore {
   setLockedScreens: (screens: string[]) => void;
   lockScreen: (screenId: string, reason?: string) => void;
   unlockScreen: (screenId: string) => void;
+  /** Clears screen-local lesson UI when navigating to a different session (avoids cross-session bleed). */
+  resetLessonNavigationState: () => void;
 }
 
 // Progress Store

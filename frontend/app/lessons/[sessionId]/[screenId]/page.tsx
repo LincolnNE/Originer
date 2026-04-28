@@ -59,7 +59,13 @@ export default function LessonScreenPage({ params }: LessonScreenPageProps) {
   const router = useRouter();
   const { currentState, transitionTo } = useAppStateMachine();
   const { currentSessionId, pendingSessionId, sessionState, session, loadSession } = useSession();
-  const { currentScreenId, lessonState, setCurrentScreen, setLessonState } = useLessonState();
+  const { currentScreenId, lessonState, setCurrentScreen, setLessonState, resetLessonNavigationState } =
+    useLessonState();
+
+  // Drop prior lesson/instructor UI when switching sessions so submissions cannot target the wrong session.
+  useEffect(() => {
+    resetLessonNavigationState();
+  }, [sessionId, resetLessonNavigationState]);
 
   // Load (or re-load) when the URL sessionId does not match the loaded or in-flight session.
   // We must not skip `loadSession` just because `sessionState === 'loading'`: a prior navigation

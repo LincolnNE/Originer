@@ -29,7 +29,7 @@ interface LessonScreenProps {
 
 export default function LessonScreen({ sessionId, screenId }: LessonScreenProps) {
   // Instructor hook for AI interactions
-  const { output, isLoading, processInput } = useInstructor();
+  const { output, isLoading, processInput, clearOutput } = useInstructor();
   
   // Lesson state hook
   const { lessonState, transitionState, lockScreen, unlockScreen } = useLessonState();
@@ -39,6 +39,15 @@ export default function LessonScreen({ sessionId, screenId }: LessonScreenProps)
   const [submittedAnswer, setSubmittedAnswer] = useState('');
   const [currentAttempt, setCurrentAttempt] = useState(1);
   const [assessmentResult, setAssessmentResult] = useState<InstructorOutput | null>(null);
+
+  // Session-scoped: prevent stale instructor output or draft answers from applying after fast navigation.
+  useEffect(() => {
+    clearOutput();
+    setAnswerValue('');
+    setSubmittedAnswer('');
+    setCurrentAttempt(1);
+    setAssessmentResult(null);
+  }, [sessionId, clearOutput]);
 
   // Load problem presentation on mount
   useEffect(() => {
