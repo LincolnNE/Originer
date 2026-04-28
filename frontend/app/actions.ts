@@ -1,10 +1,13 @@
 'use server';
 
 import { redirect } from 'next/navigation';
+import { getPublicApiBaseUrl } from '../lib/publicApiBaseUrl';
 
 export async function startSession() {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
-  const apiUrl = apiBaseUrl ? `${apiBaseUrl}/api/v1/sessions/start` : '/api/v1/sessions/start';
+  // Server Actions run on the Next.js server. A relative /api/... URL resolves to the
+  // Next origin (e.g. :3000), not the Fastify API. Default to the same base as
+  // next.config.js and frontend/services/api/client.ts when the env is unset.
+  const apiUrl = `${getPublicApiBaseUrl()}/api/v1/sessions/start`;
   let redirectPath = '/';
   
   try {
