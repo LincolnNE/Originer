@@ -261,7 +261,13 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   async loadMessage(messageId: string): Promise<Message | null> {
     const row = this.db.prepare('SELECT * FROM messages WHERE id = ?').get(messageId) as any;
     if (!row) return null;
+    return this.rowToMessage(row);
+  }
 
+  /**
+   * Map a messages table row to the domain Message type.
+   */
+  private rowToMessage(row: any): Message {
     return {
       id: row.id,
       sessionId: row.session_id,
@@ -278,18 +284,24 @@ export class DatabaseStorageAdapter implements StorageAdapter {
 
     const placeholders = messageIds.map(() => '?').join(',');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
 
-    return rows.map(row => ({
-      id: row.id,
-      sessionId: row.session_id,
-      role: row.role as MessageRole,
-      content: row.content,
-      messageType: (row.message_type || 'question') as MessageType,
-      teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
-      timestamp: new Date(row.created_at),
-    }));
+    const byId = new Map<string, Message>();
+    for (const row of rows) {
+      byId.set(row.id, this.rowToMessage(row));
+    }
+
+    // Preserve session order (messageIds). Do not ORDER BY created_at — equal timestamps
+    // are common for back-to-back saves and would scramble learner/instructor turns.
+    const ordered: Message[] = [];
+    for (const id of messageIds) {
+      const msg = byId.get(id);
+      if (msg) {
+        ordered.push(msg);
+      }
+    }
+    return ordered;
   }
 
   async saveMessage(message: Message): Promise<void> {
