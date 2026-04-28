@@ -1,10 +1,14 @@
 'use server';
 
 import { redirect } from 'next/navigation';
+import { getPublicApiBaseUrl } from '../lib/publicApiBaseUrl';
 
 export async function startSession() {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
-  const apiUrl = apiBaseUrl ? `${apiBaseUrl}/api/v1/sessions` : '/api/v1/sessions';
+  // Server Actions run on the Next.js server. A relative /api/... URL resolves to the
+  // Next origin (e.g. :3000), not the Fastify API. Default to the same base as
+  // next.config.js and frontend/services/api/client.ts when the env is unset.
+  const apiUrl = `${getPublicApiBaseUrl()}/api/v1/sessions/start`;
+  let redirectPath = '/';
   
   try {
     const response = await fetch(apiUrl, {
@@ -13,25 +17,26 @@ export async function startSession() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        instructorProfileId: 'default',
+        instructor_id: 'default',
+        learner_id: 'anonymous',
         subject: 'General',
         topic: 'Introduction',
-        learningObjective: 'Get started with learning',
+        learning_objective: 'Get started with learning',
       }),
     });
 
     if (!response.ok) {
-      redirect('/');
-    }
-
-    const result = await response.json();
-    
-    if (result.success && result.data?.session?.id) {
-      redirect(`/lessons/${result.data.session.id}/screen_001`);
+      redirectPath = '/';
     } else {
-      redirect('/');
+      const result = await response.json();
+      
+      if (result.success && result.data?.session_id) {
+        redirectPath = `/lessons/${result.data.session_id}/screen_001`;
+      }
     }
   } catch (error) {
-    redirect('/');
+    redirectPath = '/';
   }
+
+  redirect(redirectPath);
 }
