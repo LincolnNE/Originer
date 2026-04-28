@@ -190,15 +190,29 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       .prepare('INSERT OR IGNORE INTO learners (id, name) VALUES (?, ?)')
       .run(session.learnerId, 'Learner');
 
-    const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO sessions (
+    // Use upsert, not INSERT OR REPLACE: with foreign_keys ON, REPLACE can delete
+    // and reinsert the sessions row, cascade-deleting child messages and breaking
+    // FK when we reinsert session_messages (see tests/saveSession-fk.test.ts).
+    const upsert = this.db.prepare(`
+      INSERT INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
         subject, topic, learning_objective, session_state,
         started_at, last_activity_at, ended_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (id) DO UPDATE SET
+        instructor_id = excluded.instructor_id,
+        learner_id = excluded.learner_id,
+        instructor_profile_id = excluded.instructor_profile_id,
+        subject = excluded.subject,
+        topic = excluded.topic,
+        learning_objective = excluded.learning_objective,
+        session_state = excluded.session_state,
+        started_at = excluded.started_at,
+        last_activity_at = excluded.last_activity_at,
+        ended_at = excluded.ended_at
     `);
 
-    stmt.run(
+    upsert.run(
       session.id,
       session.instructorId,
       session.learnerId,
