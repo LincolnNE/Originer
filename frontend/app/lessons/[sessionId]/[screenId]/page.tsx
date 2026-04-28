@@ -71,7 +71,7 @@ export default function LessonScreenPage({ params }: LessonScreenPageProps) {
   // We must not skip `loadSession` just because `sessionState === 'loading'`: a prior navigation
   // can leave an older request in flight; only `pendingSessionId` tells us the load is for *this* route.
   useEffect(() => {
-    if (!sessionId || sessionState === 'completed') return;
+    if (!sessionId || (sessionState === 'completed' && currentSessionId === sessionId)) return;
     if (sessionState === 'error' && currentSessionId === sessionId) return;
     if (sessionState === 'loading' && pendingSessionId === sessionId) return;
     if (currentSessionId === sessionId && session) return;
@@ -135,7 +135,7 @@ export default function LessonScreenPage({ params }: LessonScreenPageProps) {
   useEffect(() => {
     if (sessionState === 'error' && currentSessionId === sessionId) {
       router.push('/');
-    } else if (sessionState === 'completed') {
+    } else if (sessionState === 'completed' && currentSessionId === sessionId) {
       router.push(`/lessons/${sessionId}/complete`);
     }
   }, [sessionState, currentSessionId, sessionId, router]);

@@ -45,7 +45,9 @@ export default function SessionOverviewPage({ params }: PageProps) {
 
   // Load (or re-load) when the URL does not match the loaded or in-flight session.
   useEffect(() => {
-    if (!params.sessionId || sessionState === 'completed') return;
+    // Only skip for completed when the store still refers to *this* route; otherwise a prior
+    // session's `completed` state would block loading a new session from the URL.
+    if (!params.sessionId || (sessionState === 'completed' && currentSessionId === params.sessionId)) return;
     if (sessionState === 'error' && currentSessionId === params.sessionId) return;
     if (sessionState === 'loading' && pendingSessionId === params.sessionId) return;
     if (currentSessionId === params.sessionId && session) return;
@@ -59,7 +61,7 @@ export default function SessionOverviewPage({ params }: PageProps) {
       return;
     }
 
-    if (sessionState === 'completed') {
+    if (sessionState === 'completed' && currentSessionId === params.sessionId) {
       router.push(`/lessons/${params.sessionId}/complete`);
       return;
     }
@@ -73,7 +75,7 @@ export default function SessionOverviewPage({ params }: PageProps) {
       router.push(`/lessons/${params.sessionId}/${firstScreen}`);
       return;
     }
-  }, [sessionState, params.sessionId, availableScreens, router]);
+  }, [sessionState, currentSessionId, params.sessionId, availableScreens, router]);
 
   // Show loading while initializing
   if (sessionState === 'initializing' || sessionState === 'loading') {

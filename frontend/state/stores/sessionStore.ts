@@ -69,7 +69,11 @@ export const useSessionStore = create<SessionStore>((set) => ({
   setError: (error, options) =>
     set((state) => {
       if (error === null) {
-        return { error: null };
+        // `loadSession` clears errors before a retry; do not leave `sessionState: 'error'` or follow-up loads never run.
+        return {
+          error: null,
+          sessionState: state.sessionState === 'error' ? 'initializing' : state.sessionState,
+        };
       }
       return {
         error,
