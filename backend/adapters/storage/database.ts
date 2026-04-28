@@ -181,6 +181,15 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveSession(session: Session): Promise<void> {
+    // Ensure FK targets exist (SQLite may enforce referential integrity;
+    // routes may create a session before explicit instructor/learner rows)
+    this.db
+      .prepare('INSERT OR IGNORE INTO instructors (id, name) VALUES (?, ?)')
+      .run(session.instructorId, 'Instructor');
+    this.db
+      .prepare('INSERT OR IGNORE INTO learners (id, name) VALUES (?, ?)')
+      .run(session.learnerId, 'Learner');
+
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
