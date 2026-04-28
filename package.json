@@ -7,7 +7,8 @@
     "build": "tsc",
     "dev": "ts-node src/server.ts",
     "start": "node dist/src/server.js",
-    "test": "jest"
+    "test": "jest",
+    "test:load-messages-order": "node tests/load-messages-order.mjs"
   },
   "keywords": [],
   "author": "",
