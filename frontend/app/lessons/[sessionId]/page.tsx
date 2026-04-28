@@ -48,7 +48,6 @@ export default function SessionOverviewPage({ params }: PageProps) {
     // Only skip for completed when the store still refers to *this* route; otherwise a prior
     // session's `completed` state would block loading a new session from the URL.
     if (!params.sessionId || (sessionState === 'completed' && currentSessionId === params.sessionId)) return;
-    if (sessionState === 'error' && currentSessionId === params.sessionId) return;
     if (sessionState === 'loading' && pendingSessionId === params.sessionId) return;
     if (currentSessionId === params.sessionId && session) return;
     void loadSession(params.sessionId);

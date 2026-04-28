@@ -72,7 +72,6 @@ export default function LessonScreenPage({ params }: LessonScreenPageProps) {
   // can leave an older request in flight; only `pendingSessionId` tells us the load is for *this* route.
   useEffect(() => {
     if (!sessionId || (sessionState === 'completed' && currentSessionId === sessionId)) return;
-    if (sessionState === 'error' && currentSessionId === sessionId) return;
     if (sessionState === 'loading' && pendingSessionId === sessionId) return;
     if (currentSessionId === sessionId && session) return;
     loadSession(sessionId);
