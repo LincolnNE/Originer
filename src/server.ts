@@ -38,22 +38,13 @@ async function createServer(): Promise<FastifyInstance> {
   });
 
   // Register CORS plugin (basic configuration)
-  // #region agent log
-  fetch('http://127.0.0.1:7244/ingest/0c662f85-e502-4845-87fd-af769992dabf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.ts:38',message:'Registering CORS plugin',data:{fastifyVersion:'5.7.4',corsVersion:'11.2.0'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-  // #endregion
   try {
     await server.register(cors, {
       origin: process.env.CORS_ORIGIN || '*',
       methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization'],
     });
-    // #region agent log
-    fetch('http://127.0.0.1:7244/ingest/0c662f85-e502-4845-87fd-af769992dabf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.ts:45',message:'CORS plugin registered successfully',data:{success:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
   } catch (error) {
-    // #region agent log
-    fetch('http://127.0.0.1:7244/ingest/0c662f85-e502-4845-87fd-af769992dabf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.ts:49',message:'CORS plugin registration failed',data:{error:error instanceof Error ? error.message : String(error),code:error instanceof Error && 'code' in error ? error.code : undefined},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     throw error;
   }
 
@@ -87,10 +78,6 @@ async function createServer(): Promise<FastifyInstance> {
         environment: process.env.NODE_ENV || 'development',
       };
       
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/0c662f85-e502-4845-87fd-af769992dabf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.ts:64',message:'Health check request',data:{accept:request.headers.accept,userAgent:request.headers['user-agent'],url:request.url},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
-      
       request.log.info({ path: '/health', method: 'GET', accept: request.headers.accept }, 'Health check requested');
       
       // Check if browser request (wants HTML) - browsers send Accept: text/html,application/xhtml+xml,...
@@ -98,10 +85,6 @@ async function createServer(): Promise<FastifyInstance> {
       const isBrowserRequest = acceptHeader.includes('text/html') || 
                                acceptHeader.includes('application/xhtml') ||
                                !acceptHeader.includes('application/json');
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/0c662f85-e502-4845-87fd-af769992dabf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.ts:72',message:'Browser detection',data:{acceptHeader,isBrowserRequest},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       
       if (isBrowserRequest) {
         reply.type('text/html');
@@ -130,27 +113,15 @@ async function createServer(): Promise<FastifyInstance> {
 </body>
 </html>`;
         
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/0c662f85-e502-4845-87fd-af769992dabf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.ts:95',message:'Returning HTML response',data:{htmlLength:htmlResponse.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
-        
         return htmlResponse;
       }
       
       // JSON response for API clients
       reply.type('application/json');
       
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/0c662f85-e502-4845-87fd-af769992dabf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.ts:103',message:'Returning JSON response',data:{response},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
-      
       return response;
     } catch (error) {
       request.log.error({ error }, 'Health check failed');
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/0c662f85-e502-4845-87fd-af769992dabf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.ts:108',message:'Health check error',data:{error:error instanceof Error ? error.message : String(error)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       
       reply.code(500).send({
         status: 'error',
