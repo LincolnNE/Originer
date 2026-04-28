@@ -7,7 +7,8 @@
     "build": "tsc",
     "dev": "ts-node src/server.ts",
     "start": "node dist/src/server.js",
-    "test": "jest"
+    "test": "npm run test:load-messages",
+    "test:load-messages": "ts-node tests/database.loadMessages.test.ts"
   },
   "keywords": [],
   "author": "",
