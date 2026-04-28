@@ -7,7 +7,9 @@
     "build": "tsc",
     "dev": "ts-node src/server.ts",
     "start": "node dist/src/server.js",
-    "test": "jest"
+    "test": "npm run test:load-messages && npm run test:prompt-message-order",
+    "test:load-messages": "ts-node tests/database.loadMessages.test.ts",
+    "test:prompt-message-order": "ts-node tests/promptAssembler.messageOrder.test.ts"
   },
   "keywords": [],
   "author": "",
