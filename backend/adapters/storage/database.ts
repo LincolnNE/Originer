@@ -278,18 +278,24 @@ export class DatabaseStorageAdapter implements StorageAdapter {
 
     const placeholders = messageIds.map(() => '?').join(',');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
 
-    return rows.map(row => ({
-      id: row.id,
-      sessionId: row.session_id,
-      role: row.role as MessageRole,
-      content: row.content,
-      messageType: (row.message_type || 'question') as MessageType,
-      teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
-      timestamp: new Date(row.created_at),
-    }));
+    // Preserve session message order (session_messages / messageIds), not created_at. Two messages
+    // in the same millisecond can sort incorrectly for the LLM if we use timestamp order only.
+    const byId = new Map<string, any>(rows.map(row => [row.id, row]));
+    return messageIds
+      .map(id => byId.get(id))
+      .filter((row): row is any => row !== undefined)
+      .map(row => ({
+        id: row.id,
+        sessionId: row.session_id,
+        role: row.role as MessageRole,
+        content: row.content,
+        messageType: (row.message_type || 'question') as MessageType,
+        teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
+        timestamp: new Date(row.created_at),
+      }));
   }
 
   async saveMessage(message: Message): Promise<void> {
@@ -454,6 +460,21 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       VALUES (?, ?, ?, ?, ?)
     `);
     stmt.run(data.id, data.instructorId, data.type, data.contentUrl || null, data.contentText || null);
+  }
+
+  /**
+   * Ensure instructor and learner rows exist before inserting a session.
+   * Called from session start so new learners and default instructors are persisted.
+   */
+  ensureSessionParticipants(instructorId: string, learnerId: string): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, NULL, 'friendly')`
+      )
+      .run(instructorId, 'MVP Instructor');
+    this.db
+      .prepare(`INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, 'beginner')`)
+      .run(learnerId, 'Learner');
   }
 
   close(): void {
