@@ -278,18 +278,24 @@ export class DatabaseStorageAdapter implements StorageAdapter {
 
     const placeholders = messageIds.map(() => '?').join(',');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
 
-    return rows.map(row => ({
-      id: row.id,
-      sessionId: row.session_id,
-      role: row.role as MessageRole,
-      content: row.content,
-      messageType: (row.message_type || 'question') as MessageType,
-      teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
-      timestamp: new Date(row.created_at),
-    }));
+    // Preserve session order (messageIds / sequence_order), not created_at. Same unix
+    // timestamps from rapid inserts can sort incorrectly and scramble conversation history.
+    const byId = new Map<string, (typeof rows)[0]>(rows.map((row) => [row.id, row]));
+    return messageIds
+      .map((id) => byId.get(id))
+      .filter((row): row is (typeof rows)[0] => row != null)
+      .map((row) => ({
+        id: row.id,
+        sessionId: row.session_id,
+        role: row.role as MessageRole,
+        content: row.content,
+        messageType: (row.message_type || 'question') as MessageType,
+        teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
+        timestamp: new Date(row.created_at),
+      }));
   }
 
   async saveMessage(message: Message): Promise<void> {
