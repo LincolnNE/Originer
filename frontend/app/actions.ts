@@ -2,10 +2,25 @@
 
 import { redirect } from 'next/navigation';
 
+function apiOrigin(): string {
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '');
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL.replace(/\/$/, '')}`;
+  }
+  return 'http://localhost:4094';
+}
+
+/**
+ * Create a session via the backend and redirect into the first lesson screen.
+ * Must match POST /api/v1/sessions/start (see src/routes/sessions.ts).
+ */
 export async function startSession() {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
-  const apiUrl = apiBaseUrl ? `${apiBaseUrl}/api/v1/sessions` : '/api/v1/sessions';
-  
+  const apiUrl = `${apiOrigin()}/api/v1/sessions/start`;
+  const instructorId = process.env.DEFAULT_INSTRUCTOR_ID || 'instructor_mvp';
+  const learnerId = `learner_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
   try {
     const response = await fetch(apiUrl, {
       method: 'POST',
@@ -13,10 +28,11 @@ export async function startSession() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        instructorProfileId: 'default',
+        instructor_id: instructorId,
+        learner_id: learnerId,
         subject: 'General',
         topic: 'Introduction',
-        learningObjective: 'Get started with learning',
+        learning_objective: 'Get started with learning',
       }),
     });
 
@@ -24,14 +40,17 @@ export async function startSession() {
       redirect('/');
     }
 
-    const result = await response.json();
-    
-    if (result.success && result.data?.session?.id) {
-      redirect(`/lessons/${result.data.session.id}/screen_001`);
+    const result = (await response.json()) as {
+      success?: boolean;
+      data?: { session_id?: string };
+    };
+
+    if (result.success && result.data?.session_id) {
+      redirect(`/lessons/${result.data.session_id}/screen_001`);
     } else {
       redirect('/');
     }
-  } catch (error) {
+  } catch {
     redirect('/');
   }
 }
