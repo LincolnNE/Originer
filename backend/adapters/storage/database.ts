@@ -276,20 +276,34 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   async loadMessages(messageIds: string[]): Promise<Message[]> {
     if (messageIds.length === 0) return [];
 
+    // Preserve session order (chronology of the conversation), not created_at.
+    // Multiple rows can share a timestamp; ORDER BY created_at scrambles turn order
+    // and poisons LLM context and any UI that replays by messageIds.
     const placeholders = messageIds.map(() => '?').join(',');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
 
-    return rows.map(row => ({
-      id: row.id,
-      sessionId: row.session_id,
-      role: row.role as MessageRole,
-      content: row.content,
-      messageType: (row.message_type || 'question') as MessageType,
-      teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
-      timestamp: new Date(row.created_at),
-    }));
+    const byId = new Map<string, any>();
+    for (const row of rows) {
+      byId.set(row.id, row);
+    }
+
+    return messageIds.map(id => {
+      const row = byId.get(id);
+      if (!row) {
+        throw new Error(`loadMessages: message not found for id ${id}`);
+      }
+      return {
+        id: row.id,
+        sessionId: row.session_id,
+        role: row.role as MessageRole,
+        content: row.content,
+        messageType: (row.message_type || 'question') as MessageType,
+        teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
+        timestamp: new Date(row.created_at),
+      };
+    });
   }
 
   async saveMessage(message: Message): Promise<void> {
