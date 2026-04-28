@@ -9,6 +9,9 @@ import { useEffect } from 'react';
 import { useSessionStore } from '../stores/sessionStore';
 import { sessionsApi } from '../../services/api/sessions';
 
+/** Bumps on each loadSession start; drop stale async results when the user switches sessions. */
+let sessionLoadSequence = 0;
+
 export function useSession() {
   const {
     currentSessionId,
@@ -26,13 +29,18 @@ export function useSession() {
    * Load session from API
    */
   const loadSession = async (sessionId: string) => {
+    const loadToken = ++sessionLoadSequence;
     setSessionState('loading');
     setError(null);
     try {
       const response = await sessionsApi.getSession(sessionId);
+      if (loadToken !== sessionLoadSequence) return;
       setSession(response.session);
     } catch (err: any) {
-      setError(err.message || 'Failed to load session');
+      if (loadToken !== sessionLoadSequence) return;
+      setError(err.message || 'Failed to load session', {
+        attemptedSessionId: sessionId,
+      });
     }
   };
 

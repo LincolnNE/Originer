@@ -61,5 +61,18 @@ export const useSessionStore = create<SessionStore>((set) => ({
                   state.session ? 'active' : state.sessionState
   })),
   
-  setError: (error) => set({ error, sessionState: 'error' }),
+  setError: (error, options) =>
+    set((state) => {
+      if (error === null) {
+        return { error: null };
+      }
+      return {
+        error,
+        sessionState: 'error',
+        currentSessionId:
+          options?.attemptedSessionId !== undefined
+            ? options.attemptedSessionId
+            : state.currentSessionId,
+      };
+    }),
 }));

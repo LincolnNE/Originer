@@ -58,20 +58,15 @@ export default function LessonScreenPage({ params }: LessonScreenPageProps) {
   const { sessionId, screenId } = params;
   const router = useRouter();
   const { currentState, transitionTo } = useAppStateMachine();
-  const { sessionState, session, loadSession, setSessionState } = useSession();
+  const { currentSessionId, sessionState, loadSession } = useSession();
   const { currentScreenId, lessonState, setCurrentScreen, setLessonState } = useLessonState();
 
   // Initialize session state on mount
   useEffect(() => {
-    if (sessionState === 'initializing' && sessionId) {
-      // Mock: Initialize session state (no backend call yet)
-      // In production, this would call loadSession(sessionId)
-      loadSession(sessionId).catch(() => {
-        // Mock fallback: create mock session state
-        setSessionState('active');
-      });
+    if (sessionId && currentSessionId !== sessionId && sessionState !== 'loading') {
+      loadSession(sessionId);
     }
-  }, [sessionId, sessionState, loadSession]);
+  }, [sessionId, currentSessionId, sessionState, loadSession]);
 
   // Initialize screen state on mount
   useEffect(() => {
@@ -128,12 +123,12 @@ export default function LessonScreenPage({ params }: LessonScreenPageProps) {
 
   // Handle invalid session states
   useEffect(() => {
-    if (sessionState === 'error') {
+    if (sessionState === 'error' && currentSessionId === sessionId) {
       router.push('/');
     } else if (sessionState === 'completed') {
       router.push(`/lessons/${sessionId}/complete`);
     }
-  }, [sessionState, sessionId, router]);
+  }, [sessionState, currentSessionId, sessionId, router]);
 
   // Render based on screen state
   if (!lessonState) {
