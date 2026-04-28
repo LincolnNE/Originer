@@ -8,6 +8,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { StorageAdapter } from '../../backend/adapters/storage/types';
 import { SessionOrchestrator } from '../../backend/core/SessionOrchestrator';
+import { DatabaseStorageAdapter } from '../../backend/adapters/storage/database';
 
 interface StartSessionRequest {
   instructor_id: string;
@@ -50,7 +51,11 @@ export async function registerSessionRoutes(
 
       try {
         const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
+
+        if (storageAdapter instanceof DatabaseStorageAdapter) {
+          storageAdapter.ensureSessionParticipants(instructor_id, learner_id);
+        }
+
         const session = {
           id: sessionId,
           instructorId: instructor_id,
