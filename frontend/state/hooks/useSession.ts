@@ -15,11 +15,13 @@ let sessionLoadSequence = 0;
 export function useSession() {
   const {
     currentSessionId,
+    pendingSessionId,
     sessionState,
     session,
     error,
     setSession,
     setSessionState,
+    setPendingSessionId,
     clearSession,
     updateSession,
     setError,
@@ -31,6 +33,7 @@ export function useSession() {
   const loadSession = async (sessionId: string) => {
     const loadToken = ++sessionLoadSequence;
     setSessionState('loading');
+    setPendingSessionId(sessionId);
     setError(null);
     try {
       const response = await sessionsApi.getSession(sessionId);
@@ -72,6 +75,7 @@ export function useSession() {
 
   return {
     currentSessionId,
+    pendingSessionId,
     sessionState,
     session,
     error,

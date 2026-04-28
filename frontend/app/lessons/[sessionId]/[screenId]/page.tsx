@@ -58,15 +58,19 @@ export default function LessonScreenPage({ params }: LessonScreenPageProps) {
   const { sessionId, screenId } = params;
   const router = useRouter();
   const { currentState, transitionTo } = useAppStateMachine();
-  const { currentSessionId, sessionState, loadSession } = useSession();
+  const { currentSessionId, pendingSessionId, sessionState, session, loadSession } = useSession();
   const { currentScreenId, lessonState, setCurrentScreen, setLessonState } = useLessonState();
 
-  // Initialize session state on mount
+  // Load (or re-load) when the URL sessionId does not match the loaded or in-flight session.
+  // We must not skip `loadSession` just because `sessionState === 'loading'`: a prior navigation
+  // can leave an older request in flight; only `pendingSessionId` tells us the load is for *this* route.
   useEffect(() => {
-    if (sessionId && currentSessionId !== sessionId && sessionState !== 'loading') {
-      loadSession(sessionId);
-    }
-  }, [sessionId, currentSessionId, sessionState, loadSession]);
+    if (!sessionId || sessionState === 'completed') return;
+    if (sessionState === 'error' && currentSessionId === sessionId) return;
+    if (sessionState === 'loading' && pendingSessionId === sessionId) return;
+    if (currentSessionId === sessionId && session) return;
+    loadSession(sessionId);
+  }, [sessionId, currentSessionId, pendingSessionId, sessionState, session, loadSession]);
 
   // Initialize screen state on mount
   useEffect(() => {
