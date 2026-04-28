@@ -7,7 +7,8 @@
     "build": "tsc",
     "dev": "ts-node src/server.ts",
     "start": "node dist/src/server.js",
-    "test": "jest"
+    "test": "npm run build && node tests/load-messages-order.test.js",
+    "test:regression": "node tests/load-messages-order.test.js"
   },
   "keywords": [],
   "author": "",
