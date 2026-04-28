@@ -278,18 +278,32 @@ export class DatabaseStorageAdapter implements StorageAdapter {
 
     const placeholders = messageIds.map(() => '?').join(',');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
 
-    return rows.map(row => ({
-      id: row.id,
-      sessionId: row.session_id,
-      role: row.role as MessageRole,
-      content: row.content,
-      messageType: (row.message_type || 'question') as MessageType,
-      teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
-      timestamp: new Date(row.created_at),
-    }));
+    // Preserve session order (chronology of the conversation), not created_at. Multiple
+    // messages can share the same millisecond timestamp, which would make ORDER BY
+    // created_at non-deterministic and swap learner/instructor context in the LLM.
+    const byId = new Map<string, (typeof rows)[number]>();
+    for (const row of rows) {
+      byId.set(row.id, row);
+    }
+
+    const ordered: Message[] = [];
+    for (const id of messageIds) {
+      const row = byId.get(id);
+      if (!row) continue;
+      ordered.push({
+        id: row.id,
+        sessionId: row.session_id,
+        role: row.role as MessageRole,
+        content: row.content,
+        messageType: (row.message_type || 'question') as MessageType,
+        teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
+        timestamp: new Date(row.created_at),
+      });
+    }
+    return ordered;
   }
 
   async saveMessage(message: Message): Promise<void> {
