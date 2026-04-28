@@ -83,6 +83,14 @@ export const useSessionStore = create<SessionStore>((set) => ({
           options?.attemptedSessionId !== undefined
             ? options.attemptedSessionId
             : state.currentSessionId,
+        // A failed load for session B must not leave session A in the store; routing and
+        // redirects key off `currentSessionId` and would otherwise show or trust the wrong session.
+        session:
+          options?.attemptedSessionId !== undefined &&
+          state.session &&
+          state.session.id !== options.attemptedSessionId
+            ? null
+            : state.session,
       };
     }),
 }));
