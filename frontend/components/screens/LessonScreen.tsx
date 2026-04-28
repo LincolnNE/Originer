@@ -29,7 +29,7 @@ interface LessonScreenProps {
 
 export default function LessonScreen({ sessionId, screenId }: LessonScreenProps) {
   // Instructor hook for AI interactions
-  const { output, isLoading, processInput } = useInstructor();
+  const { output, isLoading, processInput, clearOutput } = useInstructor();
   
   // Lesson state hook
   const { lessonState, transitionState, lockScreen, unlockScreen } = useLessonState();
@@ -40,10 +40,19 @@ export default function LessonScreen({ sessionId, screenId }: LessonScreenProps)
   const [currentAttempt, setCurrentAttempt] = useState(1);
   const [assessmentResult, setAssessmentResult] = useState<InstructorOutput | null>(null);
 
+  // Session/screen-scoped: prevent stale instructor output or draft answers after fast navigation.
+  useEffect(() => {
+    clearOutput();
+    setAnswerValue('');
+    setSubmittedAnswer('');
+    setCurrentAttempt(1);
+    setAssessmentResult(null);
+  }, [sessionId, screenId, clearOutput]);
+
   // Load problem presentation on mount
   useEffect(() => {
     if (!output || output.type !== 'problem_presentation') {
-      processInput({
+      void processInput({
         sessionId,
         screenId,
         action: 'present_problem',
@@ -59,29 +68,25 @@ export default function LessonScreen({ sessionId, screenId }: LessonScreenProps)
 
   // Handle assessment result
   useEffect(() => {
-    if (output?.type === 'assessment') {
-      setAssessmentResult(output);
-      const content = output.content as any;
-      
-      // Update state based on assessment result
-      if (content.screenLocked) {
-        // Lock screen
-        lockScreen(screenId, content.lockReason);
-        transitionState('processing');
-        // After processing, allow user to revise
-        setTimeout(() => {
-          transitionState('ready');
-        }, 1000);
-      } else if (content.canProceed) {
-        // Unlock screen and allow proceeding
-        unlockScreen(screenId);
-        transitionState('processing');
-        // After processing, show success state
-        setTimeout(() => {
-          transitionState('ready');
-        }, 1000);
-      }
+    if (output?.type !== 'assessment') return;
+
+    setAssessmentResult(output);
+    const content = output.content as any;
+    let settleTimer: ReturnType<typeof setTimeout> | undefined;
+
+    if (content.screenLocked) {
+      lockScreen(screenId, content.lockReason);
+      transitionState('processing');
+      settleTimer = setTimeout(() => transitionState('ready'), 1000);
+    } else if (content.canProceed) {
+      unlockScreen(screenId);
+      transitionState('processing');
+      settleTimer = setTimeout(() => transitionState('ready'), 1000);
     }
+
+    return () => {
+      if (settleTimer !== undefined) clearTimeout(settleTimer);
+    };
   }, [output, screenId, lockScreen, unlockScreen, transitionState]);
 
   // Submit handler
