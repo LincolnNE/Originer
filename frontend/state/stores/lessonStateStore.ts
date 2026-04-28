@@ -82,6 +82,7 @@ export const useLessonStateStore = create<LessonStateStore>((set) => ({
     set({
       currentScreenId: null,
       lessonState: null,
+      availableScreens: [],
       lockedScreens: [],
     }),
 }));
