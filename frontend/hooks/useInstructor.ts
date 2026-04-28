@@ -13,6 +13,9 @@ import {
   InstructorError,
 } from '../types/instructor';
 
+/** Bumps on each `processInput` start and on `clearOutput`; stale async completions are ignored. */
+let instructorInteractionSequence = 0;
+
 interface UseInstructorReturn {
   output: InstructorOutput | null;
   isLoading: boolean;
@@ -27,12 +30,15 @@ export function useInstructor(): UseInstructorReturn {
   const [error, setError] = useState<InstructorError | null>(null);
 
   const processInput = useCallback(async (input: InstructorInput) => {
+    const token = ++instructorInteractionSequence;
     setIsLoading(true);
     setError(null);
     try {
       const result = await instructorGateway.processInput(input);
+      if (token !== instructorInteractionSequence) return;
       setOutput(result);
     } catch (err) {
+      if (token !== instructorInteractionSequence) return;
       if (err && typeof err === 'object' && 'code' in err) {
         setError(err as InstructorError);
       } else {
@@ -43,13 +49,18 @@ export function useInstructor(): UseInstructorReturn {
         });
       }
     } finally {
-      setIsLoading(false);
+      if (token === instructorInteractionSequence) {
+        setIsLoading(false);
+      }
     }
   }, []);
 
   const clearOutput = useCallback(() => {
+    instructorInteractionSequence += 1;
     setOutput(null);
     setError(null);
+    // In-flight `processInput` will hit a stale token and skip `finally`; avoid a stuck loading UI.
+    setIsLoading(false);
   }, []);
 
   return {

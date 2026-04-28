@@ -151,6 +151,28 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
       CREATE INDEX IF NOT EXISTS idx_session_messages_order ON session_messages(session_id, sequence_order);
     `);
+
+    this.seedDefaultRecords();
+  }
+
+  /**
+   * Seed the anonymous MVP identities used by the landing-page start flow.
+   */
+  private seedDefaultRecords(): void {
+    this.db.prepare(`
+      INSERT OR IGNORE INTO instructors (id, name, bio, tone)
+      VALUES (?, ?, ?, ?)
+    `).run(
+      'default',
+      'ORIGINER Instructor',
+      'Default instructor profile for local development and anonymous sessions.',
+      'friendly'
+    );
+
+    this.db.prepare(`
+      INSERT OR IGNORE INTO learners (id, name, level)
+      VALUES (?, ?, ?)
+    `).run('anonymous', 'Anonymous Learner', 'beginner');
   }
 
   // Session operations

@@ -5,18 +5,22 @@
  * Wraps sessionStore with React-specific logic.
  */
 
-import { useEffect } from 'react';
 import { useSessionStore } from '../stores/sessionStore';
 import { sessionsApi } from '../../services/api/sessions';
+
+/** Bumps on each loadSession start; drop stale async results when the user switches sessions. */
+let sessionLoadSequence = 0;
 
 export function useSession() {
   const {
     currentSessionId,
+    pendingSessionId,
     sessionState,
     session,
     error,
     setSession,
     setSessionState,
+    setPendingSessionId,
     clearSession,
     updateSession,
     setError,
@@ -26,13 +30,37 @@ export function useSession() {
    * Load session from API
    */
   const loadSession = async (sessionId: string) => {
+    const loadToken = ++sessionLoadSequence;
     setSessionState('loading');
+    setPendingSessionId(sessionId);
     setError(null);
+    const reconcileStateIfStale = () => {
+      if (loadToken === sessionLoadSequence) return;
+      const { session: s, currentSessionId: cid, pendingSessionId: pend, sessionState: st } =
+        useSessionStore.getState();
+      // A newer in-flight `loadSession` already updated `loading` / `pendingSessionId`; do not clobber it.
+      if (pend) return;
+      if (cid && s && cid === sessionId) {
+        setSessionState(s.sessionState === 'completed' ? 'completed' : 'active');
+      } else if (st === 'loading') {
+        setSessionState('initializing');
+      }
+    };
     try {
       const response = await sessionsApi.getSession(sessionId);
+      if (loadToken !== sessionLoadSequence) {
+        reconcileStateIfStale();
+        return;
+      }
       setSession(response.session);
     } catch (err: any) {
-      setError(err.message || 'Failed to load session');
+      if (loadToken !== sessionLoadSequence) {
+        reconcileStateIfStale();
+        return;
+      }
+      setError(err.message || 'Failed to load session', {
+        attemptedSessionId: sessionId,
+      });
     }
   };
 
@@ -64,6 +92,7 @@ export function useSession() {
 
   return {
     currentSessionId,
+    pendingSessionId,
     sessionState,
     session,
     error,
