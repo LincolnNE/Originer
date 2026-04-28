@@ -16,15 +16,17 @@ export const useSessionStore = create<SessionStore>((set) => ({
   sessionState: 'initializing' as SessionState,
   session: null,
   error: null,
+  pendingSessionId: null,
   
   // Actions
   setSession: (session: any) => {
     if (!session) {
-      set({ session: null, currentSessionId: null, sessionState: 'initializing' });
+      set({ session: null, currentSessionId: null, sessionState: 'initializing', pendingSessionId: null });
       return;
     }
     const now = new Date();
     set({ 
+      pendingSessionId: null,
       session: {
         id: session.id,
         learnerId: session.learnerId,
@@ -45,12 +47,15 @@ export const useSessionStore = create<SessionStore>((set) => ({
   },
   
   setSessionState: (state) => set({ sessionState: state }),
+
+  setPendingSessionId: (id) => set({ pendingSessionId: id }),
   
   clearSession: () => set({ 
     session: null, 
     currentSessionId: null,
     sessionState: 'initializing',
-    error: null 
+    error: null,
+    pendingSessionId: null,
   }),
   
   updateSession: (updates) => set((state) => ({
@@ -61,5 +66,23 @@ export const useSessionStore = create<SessionStore>((set) => ({
                   state.session ? 'active' : state.sessionState
   })),
   
-  setError: (error) => set({ error, sessionState: 'error' }),
+  setError: (error, options) =>
+    set((state) => {
+      if (error === null) {
+        // `loadSession` clears errors before a retry; do not leave `sessionState: 'error'` or follow-up loads never run.
+        return {
+          error: null,
+          sessionState: state.sessionState === 'error' ? 'initializing' : state.sessionState,
+        };
+      }
+      return {
+        error,
+        sessionState: 'error',
+        pendingSessionId: null,
+        currentSessionId:
+          options?.attemptedSessionId !== undefined
+            ? options.attemptedSessionId
+            : state.currentSessionId,
+      };
+    }),
 }));

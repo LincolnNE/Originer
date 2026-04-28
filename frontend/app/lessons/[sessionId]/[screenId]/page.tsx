@@ -58,20 +58,25 @@ export default function LessonScreenPage({ params }: LessonScreenPageProps) {
   const { sessionId, screenId } = params;
   const router = useRouter();
   const { currentState, transitionTo } = useAppStateMachine();
-  const { sessionState, session, loadSession, setSessionState } = useSession();
-  const { currentScreenId, lessonState, setCurrentScreen, setLessonState } = useLessonState();
+  const { currentSessionId, pendingSessionId, sessionState, session, loadSession } = useSession();
+  const { currentScreenId, lessonState, setCurrentScreen, setLessonState, resetLessonNavigationState } =
+    useLessonState();
 
-  // Initialize session state on mount
+  // Drop prior lesson/instructor UI when switching sessions so submissions cannot target the wrong session.
   useEffect(() => {
-    if (sessionState === 'initializing' && sessionId) {
-      // Mock: Initialize session state (no backend call yet)
-      // In production, this would call loadSession(sessionId)
-      loadSession(sessionId).catch(() => {
-        // Mock fallback: create mock session state
-        setSessionState('active');
-      });
-    }
-  }, [sessionId, sessionState, loadSession]);
+    resetLessonNavigationState();
+  }, [sessionId, resetLessonNavigationState]);
+
+  // Load (or re-load) when the URL sessionId does not match the loaded or in-flight session.
+  // We must not skip `loadSession` just because `sessionState === 'loading'`: a prior navigation
+  // can leave an older request in flight; only `pendingSessionId` tells us the load is for *this* route.
+  useEffect(() => {
+    if (!sessionId || (sessionState === 'completed' && currentSessionId === sessionId)) return;
+    if (sessionState === 'error' && currentSessionId === sessionId) return;
+    if (sessionState === 'loading' && pendingSessionId === sessionId) return;
+    if (currentSessionId === sessionId && session) return;
+    loadSession(sessionId);
+  }, [sessionId, currentSessionId, pendingSessionId, sessionState, session, loadSession]);
 
   // Initialize screen state on mount
   useEffect(() => {
@@ -128,12 +133,12 @@ export default function LessonScreenPage({ params }: LessonScreenPageProps) {
 
   // Handle invalid session states
   useEffect(() => {
-    if (sessionState === 'error') {
+    if (sessionState === 'error' && currentSessionId === sessionId) {
       router.push('/');
-    } else if (sessionState === 'completed') {
+    } else if (sessionState === 'completed' && currentSessionId === sessionId) {
       router.push(`/lessons/${sessionId}/complete`);
     }
-  }, [sessionState, sessionId, router]);
+  }, [sessionState, currentSessionId, sessionId, router]);
 
   // Render based on screen state
   if (!lessonState) {

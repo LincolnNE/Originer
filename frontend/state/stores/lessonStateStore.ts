@@ -77,4 +77,12 @@ export const useLessonStateStore = create<LessonStateStore>((set) => ({
     }
     return { lockedScreens: newLockedScreens };
   }),
+
+  resetLessonNavigationState: () =>
+    set({
+      currentScreenId: null,
+      lessonState: null,
+      availableScreens: [],
+      lockedScreens: [],
+    }),
 }));
