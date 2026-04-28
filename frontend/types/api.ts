@@ -33,19 +33,6 @@ export interface CreateSessionRequest {
   learningObjective: string;
 }
 
-export interface CreateSessionResponse {
-  session: {
-    id: string;
-    learnerId: string;
-    instructorProfileId: string;
-    subject: string;
-    topic: string;
-    learningObjective: string;
-    sessionState: 'active';
-    startedAt: string;
-  };
-}
-
 export interface GetSessionResponse {
   session: {
     id: string;
