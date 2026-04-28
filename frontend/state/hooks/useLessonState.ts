@@ -22,6 +22,7 @@ export function useLessonState() {
     setLockedScreens,
     lockScreen,
     unlockScreen,
+    resetLessonNavigationState,
   } = useLessonStateStore();
 
   /**
@@ -73,6 +74,7 @@ export function useLessonState() {
     setLockedScreens,
     lockScreen,
     unlockScreen,
+    resetLessonNavigationState,
     canPerformAction,
     getBlockingReason,
   };
