@@ -32,7 +32,9 @@ export function useSession() {
       const response = await sessionsApi.getSession(sessionId);
       setSession(response.session);
     } catch (err: any) {
-      setError(err.message || 'Failed to load session');
+      setError(err.message || 'Failed to load session', {
+        attemptedSessionId: sessionId,
+      });
     }
   };
 
