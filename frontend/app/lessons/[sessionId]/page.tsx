@@ -40,19 +40,17 @@ interface PageProps {
 
 export default function SessionOverviewPage({ params }: PageProps) {
   const router = useRouter();
-  const { sessionState, session, loadSession, setSessionState } = useSession();
+  const { currentSessionId, pendingSessionId, sessionState, session, loadSession } = useSession();
   const { availableScreens } = useLessonState();
 
-  // Initialize session state on mount
+  // Load (or re-load) when the URL does not match the loaded or in-flight session.
   useEffect(() => {
-    if (sessionState === 'initializing' && params.sessionId) {
-      // Mock: Initialize session state (no backend call yet)
-      loadSession(params.sessionId).catch(() => {
-        // Mock fallback: set active state
-        setSessionState('active');
-      });
-    }
-  }, [params.sessionId, sessionState, loadSession, setSessionState]);
+    if (!params.sessionId || sessionState === 'completed') return;
+    if (sessionState === 'error' && currentSessionId === params.sessionId) return;
+    if (sessionState === 'loading' && pendingSessionId === params.sessionId) return;
+    if (currentSessionId === params.sessionId && session) return;
+    void loadSession(params.sessionId);
+  }, [params.sessionId, currentSessionId, pendingSessionId, sessionState, session, loadSession]);
 
   // Handle session state-based routing
   useEffect(() => {

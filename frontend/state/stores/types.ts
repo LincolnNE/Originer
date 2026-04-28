@@ -25,6 +25,8 @@ export interface SessionStore {
     endedAt: Date | null;
   } | null;
   error: string | null;
+  /** Session id passed to the latest in-flight `loadSession`; null when not loading. */
+  pendingSessionId: string | null;
   
   // Actions
   setSession: (session: {
@@ -40,9 +42,13 @@ export interface SessionStore {
     endedAt?: string | Date | null;
   } | null) => void;
   setSessionState: (state: SessionState) => void;
+  setPendingSessionId: (id: string | null) => void;
   clearSession: () => void;
   updateSession: (updates: Partial<NonNullable<SessionStore['session']>>) => void;
-  setError: (error: string | null) => void;
+  setError: (
+    error: string | null,
+    options?: { attemptedSessionId?: string }
+  ) => void;
 }
 
 // Lesson State Store
