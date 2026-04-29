@@ -276,20 +276,25 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   async loadMessages(messageIds: string[]): Promise<Message[]> {
     if (messageIds.length === 0) return [];
 
-    const placeholders = messageIds.map(() => '?').join(',');
-    const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
-      .all(...messageIds) as any[];
-
-    return rows.map(row => ({
-      id: row.id,
-      sessionId: row.session_id,
-      role: row.role as MessageRole,
-      content: row.content,
-      messageType: (row.message_type || 'question') as MessageType,
-      teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
-      timestamp: new Date(row.created_at),
-    }));
+    // Preserve session message order (session_messages.sequence_order / messageIds array).
+    // ORDER BY created_at is wrong: same-ms timestamps or clock skew would scramble history
+    // and mislead PromptAssembler / LLM (e.g. instructor reply before learner question).
+    const stmt = this.db.prepare('SELECT * FROM messages WHERE id = ?');
+    const out: Message[] = [];
+    for (const id of messageIds) {
+      const row = stmt.get(id) as any;
+      if (!row) continue;
+      out.push({
+        id: row.id,
+        sessionId: row.session_id,
+        role: row.role as MessageRole,
+        content: row.content,
+        messageType: (row.message_type || 'question') as MessageType,
+        teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
+        timestamp: new Date(row.created_at),
+      });
+    }
+    return out;
   }
 
   async saveMessage(message: Message): Promise<void> {
