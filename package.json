@@ -7,14 +7,18 @@
     "build": "tsc",
     "dev": "ts-node src/server.ts",
     "start": "node dist/src/server.js",
-    "test": "jest"
+    "test": "jest",
+    "test:watch": "jest --watch"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.19.30",
+    "jest": "^30.3.0",
     "pino-pretty": "^10.2.3",
+    "ts-jest": "^29.4.9",
     "ts-node": "^10.9.2",
     "typescript": "^5.0.0"
   },
