@@ -8,7 +8,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { StorageAdapter } from '../../backend/adapters/storage/types';
 import { SessionOrchestrator } from '../../backend/core/SessionOrchestrator';
-import { DatabaseStorageAdapter } from '../../backend/adapters/storage/database';
 
 interface StartSessionRequest {
   instructor_id: string;
@@ -31,35 +30,6 @@ interface SendMessageRequest {
   message: string;
 }
 
-function asDbStorage(adapter: StorageAdapter): DatabaseStorageAdapter {
-  return adapter as DatabaseStorageAdapter;
-}
-
-async function ensureSessionParticipants(
-  db: DatabaseStorageAdapter,
-  instructorId: string,
-  learnerId: string
-): Promise<void> {
-  try {
-    await db.createInstructor({
-      id: instructorId,
-      name: 'Instructor',
-      tone: 'friendly',
-    });
-  } catch {
-    // Already exists (or race); ignore
-  }
-  try {
-    await db.createLearner({
-      id: learnerId,
-      name: 'Learner',
-      level: 'beginner',
-    });
-  } catch {
-    // Already exists (or race); ignore
-  }
-}
-
 /**
  * Register session routes
  */
@@ -68,8 +38,6 @@ export async function registerSessionRoutes(
   storageAdapter: StorageAdapter,
   sessionOrchestrator: SessionOrchestrator
 ): Promise<void> {
-  const dbStorage = asDbStorage(storageAdapter);
-
   /**
    * POST /api/v1/sessions
    * Create session (REST shape expected by frontend api client and landing page)
@@ -100,7 +68,9 @@ export async function registerSessionRoutes(
       const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
       try {
-        await ensureSessionParticipants(dbStorage, instructorProfileId, learnerId);
+        if (storageAdapter.ensureSessionParticipants) {
+          await storageAdapter.ensureSessionParticipants(instructorProfileId, learnerId);
+        }
 
         const session = {
           id: sessionId,
@@ -223,7 +193,9 @@ export async function registerSessionRoutes(
       }
 
       try {
-        await ensureSessionParticipants(dbStorage, instructor_id, learner_id);
+        if (storageAdapter.ensureSessionParticipants) {
+          await storageAdapter.ensureSessionParticipants(instructor_id, learner_id);
+        }
 
         const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         

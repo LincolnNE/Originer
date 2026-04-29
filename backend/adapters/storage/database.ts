@@ -432,6 +432,27 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   // Additional helper methods for API endpoints
+  async ensureSessionParticipants(instructorId: string, learnerId: string): Promise<void> {
+    try {
+      await this.createInstructor({
+        id: instructorId,
+        name: 'Instructor',
+        tone: 'friendly',
+      });
+    } catch {
+      // Already exists (or race); ignore
+    }
+    try {
+      await this.createLearner({
+        id: learnerId,
+        name: 'Learner',
+        level: 'beginner',
+      });
+    } catch {
+      // Already exists (or race); ignore
+    }
+  }
+
   async createInstructor(data: {
     id: string;
     name: string;

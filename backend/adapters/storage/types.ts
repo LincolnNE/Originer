@@ -8,6 +8,15 @@ import {
 } from '../../core/types';
 
 export interface StorageAdapter {
+  /**
+   * SQL backends: ensure instructor/learner rows exist before session INSERT (FK).
+   * Omit on in-memory or non-relational adapters that do not enforce FKs.
+   */
+  ensureSessionParticipants?(
+    instructorId: string,
+    learnerId: string
+  ): Promise<void>;
+
   // Session operations
   loadSession(sessionId: string): Promise<Session | null>;
   saveSession(session: Session): Promise<void>;
