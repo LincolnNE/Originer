@@ -26,6 +26,7 @@ export async function startSession() {
 
     const result = await response.json();
     
+    // Backend returns { success, data: { session: { id, ... } } } (see CreateSessionResponse)
     if (result.success && result.data?.session?.id) {
       redirect(`/lessons/${result.data.session.id}/screen_001`);
     } else {
