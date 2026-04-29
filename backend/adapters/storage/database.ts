@@ -29,6 +29,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (config.type === 'sqlite') {
       const dbPath = config.connectionString || ':memory:';
       this.db = new Database(dbPath);
+      // Enforce referential integrity (required for sessions referencing instructors/learners)
+      this.db.pragma('foreign_keys = ON');
       this.initializeSchema();
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
@@ -440,6 +442,30 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       INSERT INTO learners (id, name, level) VALUES (?, ?, ?)
     `);
     stmt.run(data.id, data.name, data.level || 'beginner');
+  }
+
+  /**
+   * Ensure instructor and learner rows exist so session INSERT satisfies FOREIGN KEY constraints.
+   */
+  async ensureInstructorAndLearnerExist(instructorId: string, learnerId: string): Promise<void> {
+    const hasInstructor = this.db
+      .prepare('SELECT 1 FROM instructors WHERE id = ?')
+      .get(instructorId);
+    if (!hasInstructor) {
+      await this.createInstructor({
+        id: instructorId,
+        name: 'Instructor',
+        tone: 'friendly',
+      });
+    }
+    const hasLearner = this.db.prepare('SELECT 1 FROM learners WHERE id = ?').get(learnerId);
+    if (!hasLearner) {
+      await this.createLearner({
+        id: learnerId,
+        name: 'Learner',
+        level: 'beginner',
+      });
+    }
   }
 
   async saveInstructorMaterial(data: {

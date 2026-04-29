@@ -9,6 +9,11 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { StorageAdapter } from '../../backend/adapters/storage/types';
 import { SessionOrchestrator } from '../../backend/core/SessionOrchestrator';
 
+/** Storage used by session routes may extend the core adapter with FK bootstrap helpers. */
+type SessionStorageAdapter = StorageAdapter & {
+  ensureInstructorAndLearnerExist?(instructorId: string, learnerId: string): Promise<void>;
+};
+
 interface StartSessionRequest {
   instructor_id: string;
   learner_id: string;
@@ -26,7 +31,7 @@ interface SendMessageRequest {
  */
 export async function registerSessionRoutes(
   server: FastifyInstance,
-  storageAdapter: StorageAdapter,
+  storageAdapter: SessionStorageAdapter,
   sessionOrchestrator: SessionOrchestrator
 ): Promise<void> {
   /**
@@ -49,6 +54,10 @@ export async function registerSessionRoutes(
       }
 
       try {
+        if (typeof storageAdapter.ensureInstructorAndLearnerExist === 'function') {
+          await storageAdapter.ensureInstructorAndLearnerExist(instructor_id, learner_id);
+        }
+
         const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         
         const session = {
