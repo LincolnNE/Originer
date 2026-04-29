@@ -203,7 +203,18 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       session.endedAt?.toISOString() || null
     );
 
-    // Save message IDs
+    // Save message IDs. If callers pass messageIds: [] on a session that already has
+    // rows in session_messages (e.g. a template object re-saved after messages were
+    // appended via updateSession), a blind replace would orphan messages and wipe history.
+    const existingOrderRows = this.db
+      .prepare(
+        'SELECT message_id FROM session_messages WHERE session_id = ? ORDER BY sequence_order'
+      )
+      .all(session.id) as Array<{ message_id: string }>;
+    const existingIds = existingOrderRows.map(r => r.message_id);
+    const idsToPersist =
+      session.messageIds.length === 0 && existingIds.length > 0 ? existingIds : session.messageIds;
+
     const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
     deleteStmt.run(session.id);
 
@@ -216,7 +227,7 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       }
     });
 
-    insertMany(session.messageIds.map((id, idx) => ({ id, order: idx })));
+    insertMany(idsToPersist.map((id, idx) => ({ id, order: idx })));
   }
 
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
@@ -277,9 +288,14 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (messageIds.length === 0) return [];
 
     const placeholders = messageIds.map(() => '?').join(',');
+    // Order rows by session line order, not by created_at (out-of-order inserts would scramble history).
+    const orderCase = messageIds.map((id, i) => `WHEN ? THEN ${i}`).join(' ');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
-      .all(...messageIds) as any[];
+      .prepare(
+        `SELECT * FROM messages WHERE id IN (${placeholders})
+         ORDER BY CASE id ${orderCase} END`
+      )
+      .all(...messageIds, ...messageIds) as any[];
 
     return rows.map(row => ({
       id: row.id,
@@ -440,6 +456,30 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       INSERT INTO learners (id, name, level) VALUES (?, ?, ?)
     `);
     stmt.run(data.id, data.name, data.level || 'beginner');
+  }
+
+  /**
+   * Create instructor row if missing (MVP) so session FKs succeed.
+   */
+  async ensureInstructorForMvp(instructorId: string, displayName?: string): Promise<void> {
+    const row = this.db.prepare('SELECT id FROM instructors WHERE id = ?').get(instructorId) as
+      | { id: string }
+      | undefined;
+    if (row) return;
+    const name = displayName ?? (instructorId === 'default' ? 'Default instructor' : `Instructor ${instructorId}`);
+    await this.createInstructor({ id: instructorId, name, tone: 'friendly' });
+  }
+
+  /**
+   * Create learner row if missing (MVP) so session FKs succeed.
+   */
+  async ensureLearnerForMvp(learnerId: string, displayName?: string): Promise<void> {
+    const row = this.db.prepare('SELECT id FROM learners WHERE id = ?').get(learnerId) as
+      | { id: string }
+      | undefined;
+    if (row) return;
+    const name = displayName ?? 'Learner';
+    await this.createLearner({ id: learnerId, name, level: 'beginner' });
   }
 
   async saveInstructorMaterial(data: {
