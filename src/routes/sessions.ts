@@ -7,11 +7,15 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { StorageAdapter } from '../../backend/adapters/storage/types';
+import { DatabaseStorageAdapter } from '../../backend/adapters/storage/database';
 import { SessionOrchestrator } from '../../backend/core/SessionOrchestrator';
 
+const DEFAULT_INSTRUCTOR_ID = 'default';
+const DEFAULT_LEARNER_ID = 'default';
+
 interface StartSessionRequest {
-  instructor_id: string;
-  learner_id: string;
+  instructor_id?: string;
+  learner_id?: string;
   subject?: string;
   topic?: string;
   learning_objective?: string;
@@ -36,19 +40,19 @@ export async function registerSessionRoutes(
   server.post<{ Body: StartSessionRequest }>(
     '/api/v1/sessions/start',
     async (request: FastifyRequest<{ Body: StartSessionRequest }>, reply: FastifyReply) => {
-      const { instructor_id, learner_id, subject, topic, learning_objective } = request.body;
-
-      if (!instructor_id || !learner_id) {
-        return reply.code(400).send({
-          success: false,
-          error: {
-            code: 'INVALID_REQUEST',
-            message: 'Missing required fields: instructor_id, learner_id',
-          },
-        });
-      }
+      const instructor_id =
+        (typeof request.body.instructor_id === 'string' && request.body.instructor_id.trim()) ||
+        DEFAULT_INSTRUCTOR_ID;
+      const learner_id =
+        (typeof request.body.learner_id === 'string' && request.body.learner_id.trim()) ||
+        DEFAULT_LEARNER_ID;
+      const { subject, topic, learning_objective } = request.body;
 
       try {
+        if (storageAdapter instanceof DatabaseStorageAdapter) {
+          storageAdapter.ensureDefaultInstructorAndLearner(instructor_id, learner_id);
+        }
+
         const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         
         const session = {
