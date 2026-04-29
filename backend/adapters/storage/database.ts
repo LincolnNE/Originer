@@ -277,9 +277,15 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (messageIds.length === 0) return [];
 
     const placeholders = messageIds.map(() => '?').join(',');
+    // Must preserve session order (messageIds sequence), not SQL sort by created_at.
+    // Timestamps can be equal or out of order under concurrent/retried writes; wrong order
+    // breaks prompt assembly and misleads the model about conversation flow.
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
+
+    const order = new Map(messageIds.map((id, i) => [id, i]));
+    rows.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
 
     return rows.map(row => ({
       id: row.id,
