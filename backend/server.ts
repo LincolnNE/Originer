@@ -68,22 +68,6 @@ function createApp(
     next();
   });
 
-  // Middleware: Error handling
-  app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-    console.error(`[${req.context.requestId}] Error:`, err);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'INTERNAL_ERROR',
-        message: 'An internal error occurred',
-      },
-      meta: {
-        timestamp: req.context.timestamp.toISOString(),
-        requestId: req.context.requestId,
-      },
-    });
-  });
-
   // Health check endpoint
   app.get('/health', (req: Request, res: Response) => {
     res.json({
@@ -236,6 +220,25 @@ function createApp(
     } catch (error) {
       next(error);
     }
+  });
+
+  // Error handling must be registered after all routes so Express can delegate
+  // async errors passed to next(err) to this handler.
+  app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+    const requestId = req.context?.requestId ?? 'unknown';
+    const timestamp = req.context?.timestamp ?? new Date();
+    console.error(`[${requestId}] Error:`, err);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'An internal error occurred',
+      },
+      meta: {
+        timestamp: timestamp.toISOString(),
+        requestId,
+      },
+    });
   });
 
   return app;
