@@ -456,6 +456,21 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     stmt.run(data.id, data.instructorId, data.type, data.contentUrl || null, data.contentText || null);
   }
 
+  /**
+   * Ensure default instructor and learner rows exist (MVP).
+   * Session rows reference these IDs via FK; SessionOrchestrator loads the instructor profile from instructors.
+   */
+  ensureDefaultInstructorAndLearner(instructorId: string, learnerId: string): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, ?, ?)`
+      )
+      .run(instructorId, 'Default Instructor', null, 'friendly');
+    this.db
+      .prepare(`INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)`)
+      .run(learnerId, 'Default Learner', 'beginner');
+  }
+
   close(): void {
     this.db.close();
   }

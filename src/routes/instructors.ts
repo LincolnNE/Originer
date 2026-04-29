@@ -208,7 +208,10 @@ export async function registerInstructorRoutes(
         // Create a temporary session for preview
         const tempSessionId = `preview_${Date.now()}`;
         const tempLearnerId = `temp_learner_${Date.now()}`;
-        
+
+        // Sessions FK to instructors and learners — ensure rows exist before INSERT
+        storageAdapter.ensureDefaultInstructorAndLearner(id, tempLearnerId);
+
         // Create temporary session
         const tempSession = {
           id: tempSessionId,
