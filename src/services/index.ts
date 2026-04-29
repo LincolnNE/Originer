@@ -7,6 +7,8 @@
  * - ResponseValidator (used by SessionOrchestrator, can also be middleware)
  */
 
+import fs from 'fs';
+import path from 'path';
 import { SessionOrchestrator } from '../../backend/core/SessionOrchestrator';
 import { PromptAssembler } from '../../backend/core/PromptAssembler';
 import { ResponseValidator } from '../../backend/core/ResponseValidator';
@@ -24,6 +26,25 @@ export interface Services {
 }
 
 /**
+ * Resolve SQLite database file path.
+ * When DATABASE_PATH is unset, uses a file under `./data` so data survives process restarts.
+ * Set DATABASE_PATH=:memory: explicitly for ephemeral tests only.
+ */
+export function resolveDatabasePath(): string {
+  const env = process.env.DATABASE_PATH;
+  if (env !== undefined && env.trim() !== '') {
+    return env.trim();
+  }
+  return path.join(process.cwd(), 'data', 'originer.db');
+}
+
+function ensureSqliteParentDirectory(dbPath: string): void {
+  if (dbPath === ':memory:') return;
+  const dir = path.dirname(dbPath);
+  fs.mkdirSync(dir, { recursive: true });
+}
+
+/**
  * Initialize all services
  * 
  * Data Flow:
@@ -32,7 +53,8 @@ export interface Services {
  */
 export function createServices(): Services {
   // Initialize storage adapter (SQLite for MVP)
-  const dbPath = process.env.DATABASE_PATH || ':memory:';
+  const dbPath = resolveDatabasePath();
+  ensureSqliteParentDirectory(dbPath);
   const storageAdapter = new DatabaseStorageAdapter({
     type: 'sqlite',
     connectionString: dbPath,

@@ -32,6 +32,9 @@ coverage/
 tmp/
 temp/
 
+# Local SQLite default (see DATABASE_PATH / resolveDatabasePath)
+/data/
+
 # Vercel
 .vercel
 .vercel.json
