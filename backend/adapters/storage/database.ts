@@ -151,6 +151,14 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
       CREATE INDEX IF NOT EXISTS idx_session_messages_order ON session_messages(session_id, sequence_order);
     `);
+
+    // MVP defaults so sessions started without prior setup resolve instructor + learner rows
+    this.db.prepare(
+      `INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES ('default', 'Default Instructor', NULL, 'friendly')`
+    ).run();
+    this.db.prepare(
+      `INSERT OR IGNORE INTO learners (id, name, level) VALUES ('anonymous', 'Anonymous', 'beginner')`
+    ).run();
   }
 
   // Session operations
