@@ -9,9 +9,26 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { StorageAdapter } from '../../backend/adapters/storage/types';
 import { DatabaseStorageAdapter } from '../../backend/adapters/storage/database';
 import { SessionOrchestrator } from '../../backend/core/SessionOrchestrator';
+import { Session } from '../../backend/core/types';
 
 const DEFAULT_INSTRUCTOR_ID = 'default';
 const DEFAULT_LEARNER_ID = 'default';
+
+/** API session payload (ISO date strings) for GET/POST session responses */
+function sessionToJson(session: Session) {
+  return {
+    id: session.id,
+    learnerId: session.learnerId,
+    instructorProfileId: session.instructorProfileId,
+    subject: session.subject,
+    topic: session.topic,
+    learningObjective: session.learningObjective,
+    sessionState: session.sessionState,
+    startedAt: session.startedAt.toISOString(),
+    lastActivityAt: session.lastActivityAt.toISOString(),
+    endedAt: session.endedAt ? session.endedAt.toISOString() : null,
+  };
+}
 
 interface StartSessionRequest {
   instructor_id?: string;
@@ -76,6 +93,7 @@ export async function registerSessionRoutes(
           success: true,
           data: {
             session_id: sessionId,
+            session: sessionToJson(session),
           },
         });
       } catch (error: any) {
@@ -85,6 +103,46 @@ export async function registerSessionRoutes(
           error: {
             code: 'SESSION_CREATION_ERROR',
             message: error.message || 'Failed to create session',
+          },
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /sessions/:id
+   * Load session by id (used by the Next.js app after redirect)
+   */
+  server.get<{ Params: { id: string } }>(
+    '/api/v1/sessions/:id',
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      const { id } = request.params;
+
+      try {
+        const session = await storageAdapter.loadSession(id);
+        if (!session) {
+          return reply.code(404).send({
+            success: false,
+            error: {
+              code: 'SESSION_NOT_FOUND',
+              message: `Session not found: ${id}`,
+            },
+          });
+        }
+
+        return reply.send({
+          success: true,
+          data: {
+            session: sessionToJson(session),
+          },
+        });
+      } catch (error: any) {
+        request.log.error(error);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: 'SESSION_LOAD_ERROR',
+            message: error.message || 'Failed to load session',
           },
         });
       }
