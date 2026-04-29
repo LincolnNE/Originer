@@ -29,10 +29,28 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (config.type === 'sqlite') {
       const dbPath = config.connectionString || ':memory:';
       this.db = new Database(dbPath);
+      // Foreign keys reference instructors/learner rows; ensure MVP defaults exist
+      // so session creation cannot fail when clients use instructorProfileId "default"
+      // and learnerId "anonymous" (or when only those are implied).
+      this.db.pragma('foreign_keys = ON');
       this.initializeSchema();
+      this.ensureMvpBootstrapRows();
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
     }
+  }
+
+  /**
+   * Idempotent rows for the anonymous landing-page and default-instructor flows.
+   * Without these, INSERT INTO sessions can violate FOREIGN KEY when enforcement is on.
+   */
+  private ensureMvpBootstrapRows(): void {
+    this.db.exec(`
+      INSERT OR IGNORE INTO instructors (id, name, bio, tone)
+        VALUES ('default', 'Default Instructor', NULL, 'friendly');
+      INSERT OR IGNORE INTO learners (id, name, level)
+        VALUES ('anonymous', 'Learner', 'beginner');
+    `);
   }
 
   /**
