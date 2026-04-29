@@ -18,13 +18,26 @@ export const sessionsApi = {
    */
   async createSession(request: CreateSessionRequest): Promise<CreateSessionResponse> {
     const response = await apiClient.post<ApiResponse<CreateSessionResponse>>(
-      '/api/v1/sessions',
-      request
+      '/api/v1/sessions/start',
+      {
+        instructor_id: request.instructorProfileId,
+        learner_id: request.learnerId,
+        subject: request.subject,
+        topic: request.topic,
+        learning_objective: request.learningObjective,
+      }
     );
     if (!response.success || !response.data) {
       throw new Error(response.error?.message || 'Failed to create session');
     }
-    return response.data;
+    // apiClient returns the full envelope { success, data }; callers expect CreateSessionResponse (data only).
+    const { session } = response.data as CreateSessionResponse & {
+      session_id?: string;
+    };
+    if (!session) {
+      throw new Error('Failed to create session: missing session in response');
+    }
+    return { session };
   },
 
   /**

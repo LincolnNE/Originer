@@ -3,20 +3,23 @@
 import { redirect } from 'next/navigation';
 
 export async function startSession() {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
-  const apiUrl = apiBaseUrl ? `${apiBaseUrl}/api/v1/sessions` : '/api/v1/sessions';
-  
+  const apiBase = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
+  const startUrl = apiBase
+    ? `${apiBase}/api/v1/sessions/start`
+    : '/api/v1/sessions/start';
+
   try {
-    const response = await fetch(apiUrl, {
+    const response = await fetch(startUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        instructorProfileId: 'default',
+        instructor_id: 'default',
+        learner_id: 'default',
         subject: 'General',
         topic: 'Introduction',
-        learningObjective: 'Get started with learning',
+        learning_objective: 'Get started with learning',
       }),
     });
 
@@ -26,8 +29,8 @@ export async function startSession() {
 
     const result = await response.json();
     
-    if (result.success && result.data?.session?.id) {
-      redirect(`/lessons/${result.data.session.id}/screen_001`);
+    if (result.success && result.data?.session_id) {
+      redirect(`/lessons/${result.data.session_id}/screen_001`);
     } else {
       redirect('/');
     }
