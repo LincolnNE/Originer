@@ -14,6 +14,7 @@ export async function startSession() {
       },
       body: JSON.stringify({
         instructorProfileId: 'default',
+        learnerId: 'anonymous',
         subject: 'General',
         topic: 'Introduction',
         learningObjective: 'Get started with learning',
