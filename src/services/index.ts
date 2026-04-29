@@ -11,7 +11,6 @@ import { SessionOrchestrator } from '../../backend/core/SessionOrchestrator';
 import { PromptAssembler } from '../../backend/core/PromptAssembler';
 import { ResponseValidator } from '../../backend/core/ResponseValidator';
 import { LLMAdapter } from '../../backend/adapters/llm/types';
-import { StorageAdapter } from '../../backend/adapters/storage/types';
 import { DatabaseStorageAdapter } from '../../backend/adapters/storage/database';
 import { OllamaAdapter } from '../../backend/adapters/llm/ollama';
 
@@ -19,7 +18,7 @@ export interface Services {
   sessionOrchestrator: SessionOrchestrator;
   promptAssembler: PromptAssembler;
   responseValidator: ResponseValidator;
-  storageAdapter: StorageAdapter;
+  storageAdapter: DatabaseStorageAdapter;
   llmAdapter: LLMAdapter;
 }
 
