@@ -221,7 +221,7 @@ export class DatabaseStorageAdapter implements StorageAdapter {
 
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
     const fields: string[] = [];
-    const values: any[] = [];
+    const values: unknown[] = [];
 
     if (updates.sessionState !== undefined) {
       fields.push('session_state = ?');
@@ -235,26 +235,36 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       fields.push('ended_at = ?');
       values.push(updates.endedAt?.toISOString() || null);
     }
-    if (updates.messageIds !== undefined) {
-      // Delete old message IDs
-      this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
-      // Insert new message IDs
-      const insertStmt = this.db.prepare(
-        'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
-      );
-      const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-        for (const msg of messages) {
-          insertStmt.run(sessionId, msg.id, msg.order);
-        }
-      });
-      insertMany(updates.messageIds.map((id, idx) => ({ id, order: idx })));
+
+    const messageIds = updates.messageIds;
+    const hasMessageIds = messageIds !== undefined;
+    const hasFieldUpdates = fields.length > 0;
+
+    if (!hasMessageIds && !hasFieldUpdates) {
+      return;
     }
 
-    if (fields.length > 0) {
-      values.push(sessionId);
-      const sql = `UPDATE sessions SET ${fields.join(', ')} WHERE id = ?`;
-      this.db.prepare(sql).run(...values);
-    }
+    // Run message junction updates and session row updates in one transaction.
+    // Previously DELETE ran outside the insert transaction: a crash after DELETE
+    // but before inserts completed left session_messages empty while messages rows
+    // still existed (permanent loss of conversation order for that session).
+    const run = this.db.transaction(() => {
+      if (hasMessageIds) {
+        this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
+        const insertStmt = this.db.prepare(
+          'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
+        );
+        for (let idx = 0; idx < messageIds!.length; idx++) {
+          insertStmt.run(sessionId, messageIds![idx], idx);
+        }
+      }
+      if (hasFieldUpdates) {
+        const updateValues = [...values, sessionId];
+        const sql = `UPDATE sessions SET ${fields.join(', ')} WHERE id = ?`;
+        this.db.prepare(sql).run(...updateValues);
+      }
+    });
+    run();
   }
 
   // Message operations
