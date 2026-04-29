@@ -29,6 +29,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (config.type === 'sqlite') {
       const dbPath = config.connectionString || ':memory:';
       this.db = new Database(dbPath);
+      // SQLite foreign keys are enforced by better-sqlite3; sessions reference instructors/learners.
+      this.db.pragma('foreign_keys = ON');
       this.initializeSchema();
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
@@ -153,6 +155,24 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     `);
   }
 
+  /**
+   * Ensure parent rows exist for session foreign keys (instructor_id, learner_id).
+   * POST /api/v1/sessions and other flows may reference IDs before explicit instructor/learner creation.
+   */
+  private ensureInstructorExists(instructorId: string): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, NULL, 'friendly')`
+      )
+      .run(instructorId, instructorId);
+  }
+
+  private ensureLearnerExists(learnerId: string): void {
+    this.db
+      .prepare(`INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, 'beginner')`)
+      .run(learnerId, learnerId);
+  }
+
   // Session operations
   async loadSession(sessionId: string): Promise<Session | null> {
     const sessionRow = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as any;
@@ -181,7 +201,11 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveSession(session: Session): Promise<void> {
-    const stmt = this.db.prepare(`
+    const persist = this.db.transaction((sess: Session) => {
+      this.ensureInstructorExists(sess.instructorId);
+      this.ensureLearnerExists(sess.learnerId);
+
+      const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
         subject, topic, learning_objective, session_state,
@@ -189,72 +213,81 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    stmt.run(
-      session.id,
-      session.instructorId,
-      session.learnerId,
-      session.instructorProfileId,
-      session.subject,
-      session.topic,
-      session.learningObjective,
-      session.sessionState,
-      session.startedAt.toISOString(),
-      session.lastActivityAt.toISOString(),
-      session.endedAt?.toISOString() || null
-    );
+      stmt.run(
+        sess.id,
+        sess.instructorId,
+        sess.learnerId,
+        sess.instructorProfileId,
+        sess.subject,
+        sess.topic,
+        sess.learningObjective,
+        sess.sessionState,
+        sess.startedAt.toISOString(),
+        sess.lastActivityAt.toISOString(),
+        sess.endedAt?.toISOString() || null
+      );
 
-    // Save message IDs
-    const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
-    deleteStmt.run(session.id);
+      // Save message IDs
+      const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
+      deleteStmt.run(sess.id);
 
-    const insertStmt = this.db.prepare(
-      'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
-    );
-    const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-      for (const msg of messages) {
-        insertStmt.run(session.id, msg.id, msg.order);
-      }
-    });
-
-    insertMany(session.messageIds.map((id, idx) => ({ id, order: idx })));
-  }
-
-  async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
-    const fields: string[] = [];
-    const values: any[] = [];
-
-    if (updates.sessionState !== undefined) {
-      fields.push('session_state = ?');
-      values.push(updates.sessionState);
-    }
-    if (updates.lastActivityAt !== undefined) {
-      fields.push('last_activity_at = ?');
-      values.push(updates.lastActivityAt.toISOString());
-    }
-    if (updates.endedAt !== undefined) {
-      fields.push('ended_at = ?');
-      values.push(updates.endedAt?.toISOString() || null);
-    }
-    if (updates.messageIds !== undefined) {
-      // Delete old message IDs
-      this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
-      // Insert new message IDs
       const insertStmt = this.db.prepare(
         'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
       );
-      const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-        for (const msg of messages) {
-          insertStmt.run(sessionId, msg.id, msg.order);
-        }
-      });
-      insertMany(updates.messageIds.map((id, idx) => ({ id, order: idx })));
-    }
+      const messages = sess.messageIds.map((id, idx) => ({ id, order: idx }));
+      for (const msg of messages) {
+        insertStmt.run(sess.id, msg.id, msg.order);
+      }
+    });
 
-    if (fields.length > 0) {
-      values.push(sessionId);
-      const sql = `UPDATE sessions SET ${fields.join(', ')} WHERE id = ?`;
-      this.db.prepare(sql).run(...values);
-    }
+    persist(session);
+  }
+
+  async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
+    const persist = this.db.transaction(() => {
+      const parentRow = this.db
+        .prepare('SELECT instructor_id, learner_id FROM sessions WHERE id = ?')
+        .get(sessionId) as { instructor_id: string; learner_id: string } | undefined;
+      if (parentRow) {
+        this.ensureInstructorExists(parentRow.instructor_id);
+        this.ensureLearnerExists(parentRow.learner_id);
+      }
+
+      const fields: string[] = [];
+      const values: any[] = [];
+
+      if (updates.sessionState !== undefined) {
+        fields.push('session_state = ?');
+        values.push(updates.sessionState);
+      }
+      if (updates.lastActivityAt !== undefined) {
+        fields.push('last_activity_at = ?');
+        values.push(updates.lastActivityAt.toISOString());
+      }
+      if (updates.endedAt !== undefined) {
+        fields.push('ended_at = ?');
+        values.push(updates.endedAt?.toISOString() || null);
+      }
+      if (updates.messageIds !== undefined) {
+        // Delete old message IDs
+        this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
+        // Insert new message IDs
+        const insertStmt = this.db.prepare(
+          'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
+        );
+        for (let idx = 0; idx < updates.messageIds.length; idx++) {
+          insertStmt.run(sessionId, updates.messageIds[idx], idx);
+        }
+      }
+
+      if (fields.length > 0) {
+        values.push(sessionId);
+        const sql = `UPDATE sessions SET ${fields.join(', ')} WHERE id = ?`;
+        this.db.prepare(sql).run(...values);
+      }
+    });
+
+    persist();
   }
 
   // Message operations
