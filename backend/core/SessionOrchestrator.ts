@@ -25,6 +25,13 @@ export class SessionOrchestrator {
   private llmAdapter: LLMAdapter;
   private storageAdapter: StorageAdapter;
 
+  /**
+   * Serialized execution per sessionId. Concurrent POST /sessions/:id/message
+   * requests each load session, append messageIds, and replace session_messages — without
+   * this, interleaved updates drop rows (lost messages / corrupt dialogue).
+   */
+  private readonly sessionOpChains = new Map<string, Promise<unknown>>();
+
   constructor(
     promptAssembler: PromptAssembler,
     responseValidator: ResponseValidator,
@@ -37,6 +44,20 @@ export class SessionOrchestrator {
     this.storageAdapter = storageAdapter;
   }
 
+  /** Run work for one session strictly after any prior work for the same session completes. */
+  private runSerializedForSession<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.sessionOpChains.get(sessionId) ?? Promise.resolve();
+    // Continue the chain even if a prior turn failed; otherwise later requests would hang forever.
+    const run = prev.then(() => fn(), () => fn());
+    const tail = run.finally(() => {
+      if (this.sessionOpChains.get(sessionId) === tail) {
+        this.sessionOpChains.delete(sessionId);
+      }
+    });
+    this.sessionOpChains.set(sessionId, tail);
+    return run;
+  }
+
   /**
    * Process a learner message and generate instructor response
    * 
@@ -45,6 +66,15 @@ export class SessionOrchestrator {
    * @returns Instructor message content
    */
   async processLearnerMessage(
+    sessionId: string,
+    learnerMessageContent: string
+  ): Promise<string> {
+    return this.runSerializedForSession(sessionId, () =>
+      this.processLearnerMessageUnlocked(sessionId, learnerMessageContent)
+    );
+  }
+
+  private async processLearnerMessageUnlocked(
     sessionId: string,
     learnerMessageContent: string
   ): Promise<string> {
