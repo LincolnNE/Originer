@@ -3,8 +3,11 @@
 import { redirect } from 'next/navigation';
 
 export async function startSession() {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
-  const apiUrl = apiBaseUrl ? `${apiBaseUrl}/api/v1/sessions` : '/api/v1/sessions';
+  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+  const apiUrl =
+    apiBaseUrl && apiBaseUrl.length > 0
+      ? `${apiBaseUrl.replace(/\/$/, '')}/api/v1/sessions`
+      : '/api/v1/sessions';
   
   try {
     const response = await fetch(apiUrl, {
@@ -26,8 +29,9 @@ export async function startSession() {
 
     const result = await response.json();
     
-    if (result.success && result.data?.session?.id) {
-      redirect(`/lessons/${result.data.session.id}/screen_001`);
+    const sessionId = result?.data?.session?.id;
+    if (result.success && sessionId) {
+      redirect(`/lessons/${sessionId}/screen_001`);
     } else {
       redirect('/');
     }
