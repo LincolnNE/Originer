@@ -8,6 +8,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { DatabaseStorageAdapter } from '../../backend/adapters/storage/database';
 import { SessionOrchestrator } from '../../backend/core/SessionOrchestrator';
+import { createPreviewTempIds } from '../../backend/previewSessionIds';
 
 interface CreateInstructorRequest {
   name: string;
@@ -205,9 +206,7 @@ export async function registerInstructorRoutes(
       }
 
       try {
-        // Create a temporary session for preview
-        const tempSessionId = `preview_${Date.now()}`;
-        const tempLearnerId = `temp_learner_${Date.now()}`;
+        const { tempSessionId, tempLearnerId } = createPreviewTempIds();
         
         // Create temporary session
         const tempSession = {
