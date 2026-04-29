@@ -456,6 +456,21 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     stmt.run(data.id, data.instructorId, data.type, data.contentUrl || null, data.contentText || null);
   }
 
+  /**
+   * Ensures MVP demo IDs used by the frontend (`default`) exist so sessions and
+   * SessionOrchestrator (loadInstructorProfile / loadLearnerMemory) do not fail.
+   */
+  seedDefaultMvpUsers(): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, ?, ?)`
+      )
+      .run('default', 'Default Instructor', null, 'friendly');
+    this.db
+      .prepare(`INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)`)
+      .run('default', 'Anonymous Learner', 'beginner');
+  }
+
   close(): void {
     this.db.close();
   }
