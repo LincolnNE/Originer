@@ -43,6 +43,8 @@ export interface CreateSessionResponse {
     learningObjective: string;
     sessionState: 'active';
     startedAt: string;
+    lastActivityAt: string;
+    endedAt: string | null;
   };
 }
 
