@@ -90,17 +90,14 @@ export class SessionOrchestrator {
     // TODO: Save learner message
     await this.storageAdapter.saveMessage(learnerMessage);
 
-    // TODO: Update session with new message ID
-    const updatedMessageIds = [...session.messageIds, learnerMessage.id];
-    await this.storageAdapter.updateSession(sessionId, {
-      messageIds: updatedMessageIds,
-      lastActivityAt: new Date(),
-    });
+    // Do not persist messageIds until the turn completes. If the LLM or validation
+    // throws after linking the learner message, the session would reference a
+    // message with no instructor reply (corrupt history).
 
     // Step 3: Assemble prompt
     // TODO: Assemble full prompt using PromptAssembler
     const fullPrompt = await this.promptAssembler.assemblePrompt({
-      session: { ...session, messageIds: updatedMessageIds },
+      session: { ...session, messageIds: [...session.messageIds, learnerMessage.id] },
       instructorProfile,
       learnerMemory,
       messageHistory,
@@ -127,7 +124,7 @@ export class SessionOrchestrator {
     // TODO: Validate response using ResponseValidator
     let validationResult = this.responseValidator.validate({
       response: rawResponse,
-      session: { ...session, messageIds: updatedMessageIds },
+      session: { ...session, messageIds: [...session.messageIds, learnerMessage.id] },
       instructorProfile,
       learnerMessage: learnerMessageContent,
     });
@@ -151,7 +148,7 @@ export class SessionOrchestrator {
           // TODO: Re-validate fallback response
           validationResult = this.responseValidator.validate({
             response: rawResponse,
-            session: { ...session, messageIds: updatedMessageIds },
+            session: { ...session, messageIds: [...session.messageIds, learnerMessage.id] },
             instructorProfile,
             learnerMessage: learnerMessageContent,
           });
@@ -182,8 +179,12 @@ export class SessionOrchestrator {
     // TODO: Save instructor message
     await this.storageAdapter.saveMessage(instructorMessage);
 
-    // TODO: Update session with instructor message ID
-    const finalMessageIds = [...updatedMessageIds, instructorMessage.id];
+    // TODO: Link both messages to the session only after the turn succeeds
+    const finalMessageIds = [
+      ...session.messageIds,
+      learnerMessage.id,
+      instructorMessage.id,
+    ];
     await this.storageAdapter.updateSession(sessionId, {
       messageIds: finalMessageIds,
       lastActivityAt: new Date(),
