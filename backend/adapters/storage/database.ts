@@ -203,7 +203,18 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       session.endedAt?.toISOString() || null
     );
 
-    // Save message IDs
+    // Save message IDs. If callers pass messageIds: [] on a session that already has
+    // rows in session_messages (e.g. a template object re-saved after messages were
+    // appended via updateSession), a blind replace would orphan messages and wipe history.
+    const existingOrderRows = this.db
+      .prepare(
+        'SELECT message_id FROM session_messages WHERE session_id = ? ORDER BY sequence_order'
+      )
+      .all(session.id) as Array<{ message_id: string }>;
+    const existingIds = existingOrderRows.map(r => r.message_id);
+    const idsToPersist =
+      session.messageIds.length === 0 && existingIds.length > 0 ? existingIds : session.messageIds;
+
     const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
     deleteStmt.run(session.id);
 
@@ -216,7 +227,7 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       }
     });
 
-    insertMany(session.messageIds.map((id, idx) => ({ id, order: idx })));
+    insertMany(idsToPersist.map((id, idx) => ({ id, order: idx })));
   }
 
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {

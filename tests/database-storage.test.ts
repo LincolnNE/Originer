@@ -56,4 +56,60 @@ describe('DatabaseStorageAdapter', () => {
 
     storage.close();
   });
+
+  it('saveSession does not wipe session_messages when messageIds is empty but junction already has rows', async () => {
+    const storage = new DatabaseStorageAdapter({ type: 'sqlite', connectionString: ':memory:' });
+    const instructorId = 'inst_keep';
+    const learnerId = 'learner_keep';
+    await storage.ensureInstructorForMvp(instructorId);
+    await storage.ensureLearnerForMvp(learnerId);
+
+    const sessionId = 'sess_keep_order';
+    await storage.saveSession({
+      id: sessionId,
+      instructorId,
+      learnerId,
+      instructorProfileId: instructorId,
+      subject: 'S',
+      topic: 'T',
+      learningObjective: 'L',
+      sessionState: 'active',
+      messageIds: [],
+      startedAt: new Date(),
+      lastActivityAt: new Date(),
+      endedAt: null,
+    });
+
+    const msg: Message = {
+      id: 'msg_persisted',
+      sessionId,
+      role: 'learner',
+      content: 'hello',
+      messageType: 'question',
+      timestamp: new Date(),
+    };
+    await storage.saveMessage(msg);
+    await storage.updateSession(sessionId, { messageIds: [msg.id] });
+
+    // Stale session object (empty messageIds) must not delete existing junction rows.
+    await storage.saveSession({
+      id: sessionId,
+      instructorId,
+      learnerId,
+      instructorProfileId: instructorId,
+      subject: 'S',
+      topic: 'T',
+      learningObjective: 'L',
+      sessionState: 'active',
+      messageIds: [],
+      startedAt: new Date(),
+      lastActivityAt: new Date(),
+      endedAt: null,
+    });
+
+    const loaded = await storage.loadSession(sessionId);
+    expect(loaded?.messageIds).toEqual([msg.id]);
+
+    storage.close();
+  });
 });
