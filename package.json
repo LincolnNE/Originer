@@ -7,7 +7,7 @@
     "build": "tsc",
     "dev": "ts-node src/server.ts",
     "start": "node dist/src/server.js",
-    "test": "jest"
+    "test": "ts-node --transpile-only test/session-save-foreign-key.ts"
   },
   "keywords": [],
   "author": "",
