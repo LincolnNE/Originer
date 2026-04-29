@@ -1,6 +1,6 @@
 /**
  * Regression: conversation history for prompts must follow session turn order,
- * not `created_at` / timestamp sort (ties and clock skew scramble dialogue).
+ * not `created_at` / timestamp sort (ties, stable-sort ambiguity, and clock skew scramble dialogue).
  * Run: node --test tests/prompt-history-order.unit.mjs
  */
 
@@ -28,13 +28,18 @@ function formatHistoryWithTimestampSort(messages) {
     .join("\n\n");
 }
 
-test("history follows message array order when timestamps are equal", () => {
-  const t = new Date("2020-01-01T00:00:00.000Z").getTime();
+test("history follows message array order when timestamps disagree with turn order", () => {
+  // Learner spoke first in session order, but their row got a later clock (e.g. skew or batch write).
+  // Chronological sort would put the instructor line first and scramble the dialogue.
   const messages = [
-    { role: "instructor", content: "second turn", timestamp: t },
-    { role: "learner", content: "first turn", timestamp: t },
+    { role: "learner", content: "Question A", timestamp: 2000 },
+    { role: "instructor", content: "Answer A", timestamp: 1000 },
   ];
-  const expected = "Instructor: second turn\n\nLearner: first turn";
+  const expected = "Learner: Question A\n\nInstructor: Answer A";
   assert.equal(formatHistoryLikePromptAssembler(messages), expected);
   assert.notEqual(formatHistoryWithTimestampSort(messages), expected);
+  assert.equal(
+    formatHistoryWithTimestampSort(messages),
+    "Instructor: Answer A\n\nLearner: Question A"
+  );
 });
