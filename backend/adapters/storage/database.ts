@@ -278,10 +278,14 @@ export class DatabaseStorageAdapter implements StorageAdapter {
 
     const placeholders = messageIds.map(() => '?').join(',');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
 
-    return rows.map(row => ({
+    // Preserve session order (sequence in session_messages). ORDER BY created_at
+    // would reorder turns when timestamps tie or are inconsistent, corrupting history.
+    const byId = new Map<string, any>(rows.map((row: any) => [row.id as string, row]));
+
+    const mapRow = (row: any): Message => ({
       id: row.id,
       sessionId: row.session_id,
       role: row.role as MessageRole,
@@ -289,7 +293,12 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       messageType: (row.message_type || 'question') as MessageType,
       teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
       timestamp: new Date(row.created_at),
-    }));
+    });
+
+    return messageIds.flatMap((id) => {
+      const row = byId.get(id);
+      return row ? [mapRow(row)] : [];
+    });
   }
 
   async saveMessage(message: Message): Promise<void> {
