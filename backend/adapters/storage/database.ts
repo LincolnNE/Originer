@@ -151,6 +151,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
       CREATE INDEX IF NOT EXISTS idx_session_messages_order ON session_messages(session_id, sequence_order);
     `);
+
+    this.db.pragma('foreign_keys = ON');
   }
 
   // Session operations
@@ -180,6 +182,20 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     };
   }
 
+  /**
+   * Replace junction rows for session message order. Must run inside an outer transaction
+   * when combined with other writes so DELETE is rolled back if INSERT fails.
+   */
+  private replaceSessionMessageLinks(sessionId: string, messageIds: string[]): void {
+    this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
+    const insertStmt = this.db.prepare(
+      'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
+    );
+    for (let i = 0; i < messageIds.length; i++) {
+      insertStmt.run(sessionId, messageIds[i], i);
+    }
+  }
+
   async saveSession(session: Session): Promise<void> {
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO sessions (
@@ -189,34 +205,24 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    stmt.run(
-      session.id,
-      session.instructorId,
-      session.learnerId,
-      session.instructorProfileId,
-      session.subject,
-      session.topic,
-      session.learningObjective,
-      session.sessionState,
-      session.startedAt.toISOString(),
-      session.lastActivityAt.toISOString(),
-      session.endedAt?.toISOString() || null
-    );
-
-    // Save message IDs
-    const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
-    deleteStmt.run(session.id);
-
-    const insertStmt = this.db.prepare(
-      'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
-    );
-    const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-      for (const msg of messages) {
-        insertStmt.run(session.id, msg.id, msg.order);
-      }
+    const persist = this.db.transaction((sess: Session) => {
+      stmt.run(
+        sess.id,
+        sess.instructorId,
+        sess.learnerId,
+        sess.instructorProfileId,
+        sess.subject,
+        sess.topic,
+        sess.learningObjective,
+        sess.sessionState,
+        sess.startedAt.toISOString(),
+        sess.lastActivityAt.toISOString(),
+        sess.endedAt?.toISOString() || null
+      );
+      this.replaceSessionMessageLinks(sess.id, sess.messageIds);
     });
 
-    insertMany(session.messageIds.map((id, idx) => ({ id, order: idx })));
+    persist(session);
   }
 
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
@@ -235,25 +241,22 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       fields.push('ended_at = ?');
       values.push(updates.endedAt?.toISOString() || null);
     }
-    if (updates.messageIds !== undefined) {
-      // Delete old message IDs
-      this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
-      // Insert new message IDs
-      const insertStmt = this.db.prepare(
-        'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
-      );
-      const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-        for (const msg of messages) {
-          insertStmt.run(sessionId, msg.id, msg.order);
-        }
-      });
-      insertMany(updates.messageIds.map((id, idx) => ({ id, order: idx })));
-    }
 
-    if (fields.length > 0) {
-      values.push(sessionId);
-      const sql = `UPDATE sessions SET ${fields.join(', ')} WHERE id = ?`;
-      this.db.prepare(sql).run(...values);
+    const updateSql =
+      fields.length > 0 ? `UPDATE sessions SET ${fields.join(', ')} WHERE id = ?` : '';
+    const updateParams = fields.length > 0 ? [...values, sessionId] : [];
+
+    const apply = this.db.transaction(() => {
+      if (updates.messageIds !== undefined) {
+        this.replaceSessionMessageLinks(sessionId, updates.messageIds);
+      }
+      if (fields.length > 0) {
+        this.db.prepare(updateSql).run(...updateParams);
+      }
+    });
+
+    if (updates.messageIds !== undefined || fields.length > 0) {
+      apply();
     }
   }
 
