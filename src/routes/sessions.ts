@@ -6,7 +6,7 @@
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { StorageAdapter } from '../../backend/adapters/storage/types';
+import { DatabaseStorageAdapter } from '../../backend/adapters/storage/database';
 import { SessionOrchestrator } from '../../backend/core/SessionOrchestrator';
 
 interface StartSessionRequest {
@@ -26,7 +26,7 @@ interface SendMessageRequest {
  */
 export async function registerSessionRoutes(
   server: FastifyInstance,
-  storageAdapter: StorageAdapter,
+  storageAdapter: DatabaseStorageAdapter,
   sessionOrchestrator: SessionOrchestrator
 ): Promise<void> {
   /**
@@ -49,6 +49,8 @@ export async function registerSessionRoutes(
       }
 
       try {
+        storageAdapter.seedDefaultMvpUsers();
+
         const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         
         const session = {
