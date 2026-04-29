@@ -8,12 +8,85 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { StorageAdapter } from '../../backend/adapters/storage/types';
 import { SessionOrchestrator } from '../../backend/core/SessionOrchestrator';
+import type { Session } from '../../backend/core/types';
+
+const DEFAULT_LEARNER_ID = 'learner_default';
+const DEFAULT_INSTRUCTOR_ID = 'default';
+
+function buildNewSession(params: {
+  instructorId: string;
+  learnerId: string;
+  instructorProfileId: string;
+  subject: string;
+  topic: string;
+  learningObjective: string;
+}): Session {
+  const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  return {
+    id: sessionId,
+    instructorId: params.instructorId,
+    learnerId: params.learnerId,
+    instructorProfileId: params.instructorProfileId,
+    subject: params.subject,
+    topic: params.topic,
+    learningObjective: params.learningObjective,
+    sessionState: 'active',
+    messageIds: [],
+    startedAt: new Date(),
+    lastActivityAt: new Date(),
+    endedAt: null,
+  };
+}
+
+function sessionToCreateSessionPayload(session: Session) {
+  return {
+    session: {
+      id: session.id,
+      learnerId: session.learnerId,
+      instructorProfileId: session.instructorProfileId,
+      subject: session.subject,
+      topic: session.topic,
+      learningObjective: session.learningObjective,
+      sessionState: session.sessionState as 'active',
+      startedAt: session.startedAt.toISOString(),
+    },
+  };
+}
+
+function sessionToGetSessionPayload(session: Session) {
+  return {
+    session: {
+      id: session.id,
+      learnerId: session.learnerId,
+      instructorProfileId: session.instructorProfileId,
+      subject: session.subject,
+      topic: session.topic,
+      learningObjective: session.learningObjective,
+      sessionState: session.sessionState,
+      startedAt: session.startedAt.toISOString(),
+      lastActivityAt: session.lastActivityAt.toISOString(),
+      endedAt: session.endedAt ? session.endedAt.toISOString() : null,
+    },
+  };
+}
 
 interface StartSessionRequest {
   instructor_id: string;
   learner_id: string;
   subject?: string;
   topic?: string;
+  learning_objective?: string;
+}
+
+/** Body for POST /api/v1/sessions (frontend + types/api CreateSessionRequest) */
+interface CreateSessionApiRequest {
+  instructorProfileId?: string;
+  instructor_id?: string;
+  learnerId?: string;
+  learner_id?: string;
+  subject?: string;
+  topic?: string;
+  learningObjective?: string;
   learning_objective?: string;
 }
 
@@ -29,6 +102,92 @@ export async function registerSessionRoutes(
   storageAdapter: StorageAdapter,
   sessionOrchestrator: SessionOrchestrator
 ): Promise<void> {
+  /**
+   * POST /api/v1/sessions
+   * Create session (frontend contract: CreateSessionRequest / actions.startSession)
+   */
+  server.post<{ Body: CreateSessionApiRequest }>(
+    '/api/v1/sessions',
+    async (request: FastifyRequest<{ Body: CreateSessionApiRequest }>, reply: FastifyReply) => {
+      const body = request.body || {};
+
+      const instructorProfileId =
+        body.instructorProfileId ?? body.instructor_id ?? DEFAULT_INSTRUCTOR_ID;
+      const instructorId = body.instructor_id ?? instructorProfileId;
+      const learnerId = body.learnerId ?? body.learner_id ?? DEFAULT_LEARNER_ID;
+      const subject = body.subject ?? 'General';
+      const topic = body.topic ?? 'Introduction';
+      const learningObjective =
+        body.learningObjective ?? body.learning_objective ?? 'Learn and practice';
+
+      try {
+        const session = buildNewSession({
+          instructorId,
+          learnerId,
+          instructorProfileId,
+          subject,
+          topic,
+          learningObjective,
+        });
+        await storageAdapter.saveSession(session);
+
+        return reply.send({
+          success: true,
+          data: sessionToCreateSessionPayload(session),
+        });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Failed to create session';
+        request.log.error(error);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: 'SESSION_CREATION_ERROR',
+            message,
+          },
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /api/v1/sessions/:id
+   * Load session (frontend sessionsApi.getSession)
+   */
+  server.get<{ Params: { id: string } }>(
+    '/api/v1/sessions/:id',
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      const { id } = request.params;
+
+      try {
+        const session = await storageAdapter.loadSession(id);
+        if (!session) {
+          return reply.code(404).send({
+            success: false,
+            error: {
+              code: 'SESSION_NOT_FOUND',
+              message: `Session not found: ${id}`,
+            },
+          });
+        }
+
+        return reply.send({
+          success: true,
+          data: sessionToGetSessionPayload(session),
+        });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Failed to load session';
+        request.log.error(error);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: 'SESSION_LOAD_ERROR',
+            message,
+          },
+        });
+      }
+    }
+  );
+
   /**
    * POST /sessions/start
    * Start a new teaching session
@@ -49,29 +208,21 @@ export async function registerSessionRoutes(
       }
 
       try {
-        const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
-        const session = {
-          id: sessionId,
+        const session = buildNewSession({
           instructorId: instructor_id,
           learnerId: learner_id,
           instructorProfileId: instructor_id, // Use instructor_id as profile_id for MVP
           subject: subject || 'General',
           topic: topic || 'Introduction',
           learningObjective: learning_objective || 'Learn and practice',
-          sessionState: 'active' as const,
-          messageIds: [],
-          startedAt: new Date(),
-          lastActivityAt: new Date(),
-          endedAt: null,
-        };
+        });
 
         await storageAdapter.saveSession(session);
 
         return reply.send({
           success: true,
           data: {
-            session_id: sessionId,
+            session_id: session.id,
           },
         });
       } catch (error: any) {
