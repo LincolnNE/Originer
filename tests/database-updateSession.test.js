@@ -1,6 +1,8 @@
 /**
- * Regression: updateSession must not leave session_messages empty if the process
- * dies mid-update (DELETE + INSERT must be one atomic transaction).
+ * Regression: junction updates must be atomic:
+ * - updateSession: DELETE + INSERT (+ optional sessions UPDATE) in one transaction.
+ * - saveSession: sessions row + DELETE + INSERT in one transaction (nested txn used to
+ *   roll back inserts but not the outer DELETE on insert failure).
  */
 const assert = require('assert');
 const path = require('path');
@@ -66,6 +68,24 @@ async function main() {
     afterStateOnly.messageIds,
     ['msg_1', 'msg_2'],
     'session_state-only update must not wipe session_messages'
+  );
+
+  // saveSession: failed junction insert must not wipe existing links (full txn rollback).
+  let threw = false;
+  try {
+    await adapter.saveSession({
+      ...afterStateOnly,
+      messageIds: ['msg_1', 'msg_1'],
+    });
+  } catch (e) {
+    threw = true;
+  }
+  assert.strictEqual(threw, true, 'duplicate messageIds should fail insert');
+  const afterBadSave = await adapter.loadSession(sessionId);
+  assert.deepStrictEqual(
+    afterBadSave.messageIds,
+    ['msg_1', 'msg_2'],
+    'failed saveSession must not clear session_messages'
   );
 
   adapter.close();
