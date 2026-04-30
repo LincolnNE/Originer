@@ -278,10 +278,15 @@ export class DatabaseStorageAdapter implements StorageAdapter {
 
     const placeholders = messageIds.map(() => '?').join(',');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
 
-    return rows.map(row => ({
+    const byId = new Map<string, any>();
+    for (const row of rows) {
+      byId.set(row.id, row);
+    }
+
+    const rowToMessage = (row: any): Message => ({
       id: row.id,
       sessionId: row.session_id,
       role: row.role as MessageRole,
@@ -289,7 +294,17 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       messageType: (row.message_type || 'question') as MessageType,
       teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
       timestamp: new Date(row.created_at),
-    }));
+    });
+
+    // Preserve session order (messageIds / sequence_order). ORDER BY created_at was wrong:
+    // same-millisecond timestamps are common for back-to-back learner+instructor turns, and
+    // SQLite does not guarantee a stable order for ties, so the LLM could see shuffled history.
+    const ordered: Message[] = [];
+    for (const id of messageIds) {
+      const row = byId.get(id);
+      if (row) ordered.push(rowToMessage(row));
+    }
+    return ordered;
   }
 
   async saveMessage(message: Message): Promise<void> {
