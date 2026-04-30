@@ -60,6 +60,9 @@ async function main() {
     saveMessage: async () => {
       throw new Error('Storage adapter not implemented');
     },
+    appendMessage: async () => {
+      throw new Error('Storage adapter not implemented');
+    },
   };
 
   // Initialize core services
