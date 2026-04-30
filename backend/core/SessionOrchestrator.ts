@@ -24,6 +24,8 @@ export class SessionOrchestrator {
   private responseValidator: ResponseValidator;
   private llmAdapter: LLMAdapter;
   private storageAdapter: StorageAdapter;
+  /** Serialized handling per session so concurrent messages cannot lose IDs (last-write-wins on messageIds). */
+  private readonly sessionTurnQueues = new Map<string, Promise<void>>();
 
   constructor(
     promptAssembler: PromptAssembler,
@@ -45,6 +47,44 @@ export class SessionOrchestrator {
    * @returns Instructor message content
    */
   async processLearnerMessage(
+    sessionId: string,
+    learnerMessageContent: string
+  ): Promise<string> {
+    return this.runSerializedForSession(sessionId, () =>
+      this.processLearnerMessageInner(sessionId, learnerMessageContent)
+    );
+  }
+
+  /**
+   * Ensures only one in-flight turn per session at a time. Without this, two concurrent
+   * POST /sessions/:id/message calls both read the same messageIds, then each updateSession
+   * replaces session_messages entirely — the slower request drops the other's new IDs.
+   */
+  private async runSerializedForSession<T>(
+    sessionId: string,
+    fn: () => Promise<T>
+  ): Promise<T> {
+    const prev = this.sessionTurnQueues.get(sessionId) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = prev.then(() => gate);
+    this.sessionTurnQueues.set(sessionId, tail);
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      release();
+      tail.finally(() => {
+        if (this.sessionTurnQueues.get(sessionId) === tail) {
+          this.sessionTurnQueues.delete(sessionId);
+        }
+      });
+    }
+  }
+
+  private async processLearnerMessageInner(
     sessionId: string,
     learnerMessageContent: string
   ): Promise<string> {
