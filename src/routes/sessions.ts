@@ -17,8 +17,112 @@ interface StartSessionRequest {
   learning_objective?: string;
 }
 
+/** Body for POST /api/v1/sessions (camelCase, matches frontend types) */
+interface CreateSessionRequestBody {
+  instructorProfileId?: string;
+  learnerId?: string;
+  subject?: string;
+  topic?: string;
+  learningObjective?: string;
+}
+
 interface SendMessageRequest {
   message: string;
+}
+
+function normalizeCreateSessionFields(
+  body: StartSessionRequest | CreateSessionRequestBody,
+  options: { requireExplicitLearnerId?: boolean } = {}
+): {
+  instructorId: string;
+  learnerId: string;
+  subject: string;
+  topic: string;
+  learningObjective: string;
+} | null {
+  const instructorId =
+    'instructor_id' in body && body.instructor_id !== undefined
+      ? body.instructor_id
+      : 'instructorProfileId' in body
+        ? body.instructorProfileId
+        : undefined;
+  const hasLearnerId =
+    'learner_id' in body && body.learner_id !== undefined && body.learner_id !== '';
+  const hasLearnerIdCamel =
+    'learnerId' in body && body.learnerId !== undefined && body.learnerId !== '';
+  const learnerId = hasLearnerId
+    ? body.learner_id!
+    : hasLearnerIdCamel
+      ? body.learnerId!
+      : options.requireExplicitLearnerId
+        ? undefined
+        : 'default';
+  const subject =
+    'subject' in body && body.subject !== undefined ? body.subject : 'General';
+  const topic = 'topic' in body && body.topic !== undefined ? body.topic : 'Introduction';
+  const learningObjective =
+    'learning_objective' in body && body.learning_objective !== undefined
+      ? body.learning_objective
+      : 'learningObjective' in body && body.learningObjective !== undefined
+        ? body.learningObjective
+        : 'Learn and practice';
+
+  if (!instructorId || learnerId === undefined) {
+    return null;
+  }
+
+  return { instructorId, learnerId, subject, topic, learningObjective };
+}
+
+type NormalizedCreateSession = NonNullable<ReturnType<typeof normalizeCreateSessionFields>>;
+
+async function persistNewSession(
+  storageAdapter: StorageAdapter,
+  fields: NormalizedCreateSession
+): Promise<{
+  sessionId: string;
+  session: {
+    id: string;
+    learnerId: string;
+    instructorProfileId: string;
+    subject: string;
+    topic: string;
+    learningObjective: string;
+    sessionState: 'active';
+    startedAt: string;
+  };
+}> {
+  const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const sessionRecord = {
+    id: sessionId,
+    instructorId: fields.instructorId,
+    learnerId: fields.learnerId,
+    instructorProfileId: fields.instructorId,
+    subject: fields.subject,
+    topic: fields.topic,
+    learningObjective: fields.learningObjective,
+    sessionState: 'active' as const,
+    messageIds: [],
+    startedAt: new Date(),
+    lastActivityAt: new Date(),
+    endedAt: null,
+  };
+
+  await storageAdapter.saveSession(sessionRecord);
+
+  return {
+    sessionId,
+    session: {
+      id: sessionId,
+      learnerId: fields.learnerId,
+      instructorProfileId: fields.instructorId,
+      subject: fields.subject,
+      topic: fields.topic,
+      learningObjective: fields.learningObjective,
+      sessionState: 'active',
+      startedAt: sessionRecord.startedAt.toISOString(),
+    },
+  };
 }
 
 /**
@@ -30,15 +134,57 @@ export async function registerSessionRoutes(
   sessionOrchestrator: SessionOrchestrator
 ): Promise<void> {
   /**
+   * POST /sessions
+   * Create session (API contract used by the Next.js client)
+   */
+  server.post<{ Body: CreateSessionRequestBody }>(
+    '/api/v1/sessions',
+    async (request: FastifyRequest<{ Body: CreateSessionRequestBody }>, reply: FastifyReply) => {
+      const normalized = normalizeCreateSessionFields(request.body);
+      if (!normalized) {
+        return reply.code(400).send({
+          success: false,
+          error: {
+            code: 'INVALID_REQUEST',
+            message: 'Missing required field: instructorProfileId',
+          },
+        });
+      }
+
+      try {
+        const { sessionId, session } = await persistNewSession(storageAdapter, normalized);
+        return reply.send({
+          success: true,
+          data: {
+            session,
+            session_id: sessionId,
+          },
+        });
+      } catch (error: any) {
+        request.log.error(error);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: 'SESSION_CREATION_ERROR',
+            message: error.message || 'Failed to create session',
+          },
+        });
+      }
+    }
+  );
+
+  /**
    * POST /sessions/start
    * Start a new teaching session
    */
   server.post<{ Body: StartSessionRequest }>(
     '/api/v1/sessions/start',
     async (request: FastifyRequest<{ Body: StartSessionRequest }>, reply: FastifyReply) => {
-      const { instructor_id, learner_id, subject, topic, learning_objective } = request.body;
+      const normalized = normalizeCreateSessionFields(request.body, {
+        requireExplicitLearnerId: true,
+      });
 
-      if (!instructor_id || !learner_id) {
+      if (!normalized) {
         return reply.code(400).send({
           success: false,
           error: {
@@ -49,28 +195,12 @@ export async function registerSessionRoutes(
       }
 
       try {
-        const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
-        const session = {
-          id: sessionId,
-          instructorId: instructor_id,
-          learnerId: learner_id,
-          instructorProfileId: instructor_id, // Use instructor_id as profile_id for MVP
-          subject: subject || 'General',
-          topic: topic || 'Introduction',
-          learningObjective: learning_objective || 'Learn and practice',
-          sessionState: 'active' as const,
-          messageIds: [],
-          startedAt: new Date(),
-          lastActivityAt: new Date(),
-          endedAt: null,
-        };
-
-        await storageAdapter.saveSession(session);
+        const { sessionId, session } = await persistNewSession(storageAdapter, normalized);
 
         return reply.send({
           success: true,
           data: {
+            session,
             session_id: sessionId,
           },
         });
