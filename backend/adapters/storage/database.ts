@@ -325,6 +325,19 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     message: Message,
     sessionRowUpdates?: Partial<Pick<Session, 'lastActivityAt' | 'sessionState' | 'endedAt'>>
   ): Promise<void> {
+    if (message.sessionId !== sessionId) {
+      throw new Error(
+        `appendMessage: message.sessionId (${message.sessionId}) does not match sessionId (${sessionId})`
+      );
+    }
+
+    const sessionExists = this.db
+      .prepare('SELECT 1 AS ok FROM sessions WHERE id = ?')
+      .get(sessionId) as { ok: number } | undefined;
+    if (!sessionExists) {
+      throw new Error(`appendMessage: session does not exist: ${sessionId}`);
+    }
+
     const persist = this.db.transaction(() => {
       this.db
         .prepare(
