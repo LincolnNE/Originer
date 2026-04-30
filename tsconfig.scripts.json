@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "moduleResolution": "node",
+    "baseUrl": "."
+  },
+  "include": [
+    "scripts/verify-saveSession-preserves-messages.ts",
+    "backend/adapters/storage/database.ts",
+    "backend/adapters/storage/types.ts",
+    "backend/core/types.ts"
+  ]
+}
