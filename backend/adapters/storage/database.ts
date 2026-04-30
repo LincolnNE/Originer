@@ -203,7 +203,19 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       session.endedAt?.toISOString() || null
     );
 
-    // Save message IDs
+    // Persist message order. If callers pass an empty messageIds array for an existing session
+    // (stale in-memory session), replacing the junction table would wipe history added via
+    // updateSession — preserve existing order from the DB in that case.
+    let messageIdsToStore = session.messageIds;
+    if (messageIdsToStore.length === 0) {
+      const existingRows = this.db
+        .prepare(
+          'SELECT message_id FROM session_messages WHERE session_id = ? ORDER BY sequence_order'
+        )
+        .all(session.id) as Array<{ message_id: string }>;
+      messageIdsToStore = existingRows.map(r => r.message_id);
+    }
+
     const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
     deleteStmt.run(session.id);
 
@@ -216,7 +228,7 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       }
     });
 
-    insertMany(session.messageIds.map((id, idx) => ({ id, order: idx })));
+    insertMany(messageIdsToStore.map((id, idx) => ({ id, order: idx })));
   }
 
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
