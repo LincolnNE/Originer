@@ -216,8 +216,8 @@ export class PromptAssembler {
 
   /**
    * Format message history for prompt injection
-   * 
-   * @param messages Message history
+   *
+   * @param messages Message history in session order (caller must not reorder by timestamp)
    * @param maxTokens Maximum tokens to use for history
    * @returns Formatted conversation history string
    */
@@ -229,21 +229,19 @@ export class PromptAssembler {
       return '';
     }
 
-    // Sort by timestamp
-    const sortedMessages = [...messages].sort((a, b) => 
-      a.timestamp.getTime() - b.timestamp.getTime()
-    );
+    // Preserve session order from storage (sequence_order). Sorting by timestamp
+    // would undo loadMessages ordering when created_at collides or is inconsistent.
 
     // Limit to recent messages if maxTokens specified (rough estimate: 4 chars per token)
-    let messagesToInclude = sortedMessages;
+    let messagesToInclude = messages;
     if (maxTokens) {
       const maxChars = maxTokens * 4;
       let totalChars = 0;
       const recentMessages: Message[] = [];
       
-      // Start from most recent and work backwards
-      for (let i = sortedMessages.length - 1; i >= 0; i--) {
-        const msg = sortedMessages[i];
+      // Start from most recent in session order and work backwards
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
         const msgChars = msg.content.length + 50; // Rough estimate including formatting
         if (totalChars + msgChars > maxChars && recentMessages.length > 0) {
           break;
