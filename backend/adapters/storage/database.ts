@@ -181,7 +181,10 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveSession(session: Session): Promise<void> {
-    const stmt = this.db.prepare(`
+    // Single transaction: crash between DELETE and INSERT previously left session_messages
+    // empty while sessions row still existed — permanent loss of message order / history links.
+    const run = this.db.transaction(() => {
+      const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
         subject, topic, learning_objective, session_state,
@@ -189,39 +192,37 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    stmt.run(
-      session.id,
-      session.instructorId,
-      session.learnerId,
-      session.instructorProfileId,
-      session.subject,
-      session.topic,
-      session.learningObjective,
-      session.sessionState,
-      session.startedAt.toISOString(),
-      session.lastActivityAt.toISOString(),
-      session.endedAt?.toISOString() || null
-    );
+      stmt.run(
+        session.id,
+        session.instructorId,
+        session.learnerId,
+        session.instructorProfileId,
+        session.subject,
+        session.topic,
+        session.learningObjective,
+        session.sessionState,
+        session.startedAt.toISOString(),
+        session.lastActivityAt.toISOString(),
+        session.endedAt?.toISOString() || null
+      );
 
-    // Save message IDs
-    const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
-    deleteStmt.run(session.id);
+      const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
+      deleteStmt.run(session.id);
 
-    const insertStmt = this.db.prepare(
-      'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
-    );
-    const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-      for (const msg of messages) {
-        insertStmt.run(session.id, msg.id, msg.order);
-      }
+      const insertStmt = this.db.prepare(
+        'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
+      );
+      session.messageIds.forEach((messageId, idx) => {
+        insertStmt.run(session.id, messageId, idx);
+      });
     });
 
-    insertMany(session.messageIds.map((id, idx) => ({ id, order: idx })));
+    run();
   }
 
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
     const fields: string[] = [];
-    const values: any[] = [];
+    const values: unknown[] = [];
 
     if (updates.sessionState !== undefined) {
       fields.push('session_state = ?');
@@ -235,26 +236,32 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       fields.push('ended_at = ?');
       values.push(updates.endedAt?.toISOString() || null);
     }
-    if (updates.messageIds !== undefined) {
-      // Delete old message IDs
-      this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
-      // Insert new message IDs
-      const insertStmt = this.db.prepare(
-        'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
-      );
-      const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-        for (const msg of messages) {
-          insertStmt.run(sessionId, msg.id, msg.order);
-        }
-      });
-      insertMany(updates.messageIds.map((id, idx) => ({ id, order: idx })));
+
+    const hasMessageIds = updates.messageIds !== undefined;
+    const hasSessionRowUpdate = fields.length > 0;
+    if (!hasMessageIds && !hasSessionRowUpdate) {
+      return;
     }
 
-    if (fields.length > 0) {
-      values.push(sessionId);
-      const sql = `UPDATE sessions SET ${fields.join(', ')} WHERE id = ?`;
-      this.db.prepare(sql).run(...values);
-    }
+    const run = this.db.transaction(() => {
+      if (hasMessageIds && updates.messageIds) {
+        this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
+        const insertStmt = this.db.prepare(
+          'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
+        );
+        updates.messageIds.forEach((messageId, idx) => {
+          insertStmt.run(sessionId, messageId, idx);
+        });
+      }
+
+      if (hasSessionRowUpdate) {
+        const sqlValues = [...values, sessionId];
+        const sql = `UPDATE sessions SET ${fields.join(', ')} WHERE id = ?`;
+        this.db.prepare(sql).run(...sqlValues);
+      }
+    });
+
+    run();
   }
 
   // Message operations
@@ -278,18 +285,28 @@ export class DatabaseStorageAdapter implements StorageAdapter {
 
     const placeholders = messageIds.map(() => '?').join(',');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
 
-    return rows.map(row => ({
-      id: row.id,
-      sessionId: row.session_id,
-      role: row.role as MessageRole,
-      content: row.content,
-      messageType: (row.message_type || 'question') as MessageType,
-      teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
-      timestamp: new Date(row.created_at),
-    }));
+    // Preserve session message order (sequence_order in session_messages). Ordering by
+    // created_at can scramble history when timestamps collide or differ from append order.
+    const byId = new Map<string, any>(rows.map(row => [row.id as string, row]));
+
+    return messageIds.map(id => {
+      const row = byId.get(id);
+      if (!row) {
+        throw new Error(`Message not found for session history: ${id}`);
+      }
+      return {
+        id: row.id,
+        sessionId: row.session_id,
+        role: row.role as MessageRole,
+        content: row.content,
+        messageType: (row.message_type || 'question') as MessageType,
+        teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
+        timestamp: new Date(row.created_at),
+      };
+    });
   }
 
   async saveMessage(message: Message): Promise<void> {
