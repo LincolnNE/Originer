@@ -17,6 +17,15 @@ export interface StorageAdapter {
   loadMessage(messageId: string): Promise<Message | null>;
   loadMessages(messageIds: string[]): Promise<Message[]>;
   saveMessage(message: Message): Promise<void>;
+  /**
+   * Insert message row and append session_messages index in one transaction,
+   * optionally updating session row fields (last_activity_at, etc.).
+   */
+  appendMessage(
+    sessionId: string,
+    message: Message,
+    sessionRowUpdates?: Partial<Pick<Session, 'lastActivityAt' | 'sessionState' | 'endedAt'>>
+  ): Promise<void>;
 
   // Instructor profile operations
   loadInstructorProfile(profileId: string): Promise<InstructorProfile | null>;
