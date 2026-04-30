@@ -49,6 +49,8 @@ export async function registerSessionRoutes(
       }
 
       try {
+        await storageAdapter.ensureSessionParticipants?.(instructor_id, learner_id);
+
         const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         
         const session = {
