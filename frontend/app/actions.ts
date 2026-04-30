@@ -6,11 +6,20 @@ import { redirect } from 'next/navigation';
 const DEFAULT_INSTRUCTOR_ID = 'default_instructor';
 const DEFAULT_LEARNER_ID = 'default_learner';
 
+/** Same default as `frontend/services/api/client.ts`; server actions cannot use relative fetch URLs. */
+const DEFAULT_API_BASE = 'http://localhost:4094';
+
+function sessionsStartUrl(): string {
+  const base = (
+    process.env.NEXT_PUBLIC_API_URL ||
+    process.env.INTERNAL_API_URL ||
+    DEFAULT_API_BASE
+  ).replace(/\/$/, '');
+  return `${base}/api/v1/sessions/start`;
+}
+
 export async function startSession() {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
-  const apiUrl = apiBaseUrl
-    ? `${apiBaseUrl}/api/v1/sessions/start`
-    : '/api/v1/sessions/start';
+  const apiUrl = sessionsStartUrl();
 
   try {
     const response = await fetch(apiUrl, {
