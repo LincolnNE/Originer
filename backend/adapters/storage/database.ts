@@ -456,6 +456,36 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     stmt.run(data.id, data.instructorId, data.type, data.contentUrl || null, data.contentText || null);
   }
 
+  /**
+   * Ensure a row exists in `instructors` so session FK constraints succeed (e.g. MVP default id).
+   */
+  ensureInstructorExists(
+    id: string,
+    defaults: { name?: string; tone?: string } = {}
+  ): void {
+    const row = this.db.prepare('SELECT id FROM instructors WHERE id = ?').get(id) as { id: string } | undefined;
+    if (row) return;
+    const stmt = this.db.prepare(`
+      INSERT INTO instructors (id, name, bio, tone) VALUES (?, ?, ?, ?)
+    `);
+    stmt.run(id, defaults.name ?? 'Instructor', null, defaults.tone ?? 'friendly');
+  }
+
+  /**
+   * Ensure a row exists in `learners` so session FK constraints succeed.
+   */
+  ensureLearnerExists(
+    id: string,
+    defaults: { name?: string; level?: string } = {}
+  ): void {
+    const row = this.db.prepare('SELECT id FROM learners WHERE id = ?').get(id) as { id: string } | undefined;
+    if (row) return;
+    const stmt = this.db.prepare(`
+      INSERT INTO learners (id, name, level) VALUES (?, ?, ?)
+    `);
+    stmt.run(id, defaults.name ?? 'Learner', defaults.level ?? 'beginner');
+  }
+
   close(): void {
     this.db.close();
   }
