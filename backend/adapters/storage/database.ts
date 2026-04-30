@@ -190,7 +190,25 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     };
   }
 
+  /**
+   * Ensure FK targets exist before inserting a session row.
+   * SQLite enforces foreign_keys only when enabled; callers may reference
+   * synthetic IDs (e.g. client default profile) or legacy DBs without seed rows.
+   */
+  private ensureSessionForeignKeyRows(instructorId: string, learnerId: string): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, NULL, 'friendly')`
+      )
+      .run(instructorId, `Instructor ${instructorId}`);
+    this.db
+      .prepare(`INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)`)
+      .run(learnerId, 'Learner', 'beginner');
+  }
+
   async saveSession(session: Session): Promise<void> {
+    this.ensureSessionForeignKeyRows(session.instructorId, session.learnerId);
+
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
