@@ -21,8 +21,12 @@ function sessionsStartUrl(): string {
 export async function startSession() {
   const apiUrl = sessionsStartUrl();
 
+  // `redirect()` throws NEXT_REDIRECT; it must not run inside a catch-all try/catch
+  // or successful navigation is swallowed and the user always lands on `/`.
+
+  let response: Response;
   try {
-    const response = await fetch(apiUrl, {
+    response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -35,24 +39,34 @@ export async function startSession() {
         learning_objective: 'Get started with learning',
       }),
     });
-
-    if (!response.ok) {
-      redirect('/');
-    }
-
-    const result = await response.json();
-
-    const sessionId =
-      result.success && result.data?.session_id
-        ? (result.data.session_id as string)
-        : null;
-
-    if (sessionId) {
-      redirect(`/lessons/${sessionId}/screen_001`);
-    } else {
-      redirect('/');
-    }
   } catch {
     redirect('/');
   }
+
+  if (!response.ok) {
+    redirect('/');
+  }
+
+  let result: unknown;
+  try {
+    result = await response.json();
+  } catch {
+    redirect('/');
+  }
+
+  const data = result as {
+    success?: boolean;
+    data?: { session_id?: string };
+  };
+
+  const sessionId =
+    data.success && data.data?.session_id
+      ? (data.data.session_id as string)
+      : null;
+
+  if (sessionId) {
+    redirect(`/lessons/${sessionId}/screen_001`);
+  }
+
+  redirect('/');
 }
