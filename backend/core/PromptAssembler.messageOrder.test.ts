@@ -64,6 +64,27 @@ function msg(
 }
 
 describe('PromptAssembler conversation order', () => {
+  it('does not duplicate the current learner turn when it is already the last history message', async () => {
+    const messageHistory: Message[] = [
+      msg('m1', 'learner', 'Earlier', new Date('2026-01-01T00:00:00Z')),
+      msg('m2', 'instructor', 'Reply', new Date('2026-01-01T00:01:00Z')),
+      msg('m3', 'learner', 'Follow-up', new Date('2026-01-01T00:02:00Z')),
+    ];
+
+    const assembler = new PromptAssembler('config/prompts');
+    const prompt = await assembler.assemblePrompt({
+      session: baseSession(),
+      instructorProfile: baseProfile(),
+      learnerMemory: baseMemory(),
+      messageHistory,
+      currentMessage: 'Follow-up',
+    });
+
+    const learnerFollowUps = prompt.match(/Learner: Follow-up/g) || [];
+    expect(learnerFollowUps).toHaveLength(1);
+    expect(prompt).not.toMatch(/\[USER QUESTION\][\s\S]*Follow-up/);
+  });
+
   it('keeps message history in input order when timestamps are non-chronological', async () => {
     const same = new Date('2026-01-01T00:00:00.000Z');
     const earlier = new Date('2025-12-31T00:00:00.000Z');

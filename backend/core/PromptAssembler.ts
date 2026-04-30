@@ -94,8 +94,16 @@ export class PromptAssembler {
       console.warn('Failed to load response_format.md:', error);
     }
 
-    // 7. Add current learner message
-    parts.push(`[USER QUESTION]\n${params.currentMessage}\n`);
+    // 7. Add current learner message when it is not already the final history turn.
+    // SessionOrchestrator passes the current learner Message at the end of messageHistory;
+    // repeating the same text here duplicates the turn in the LLM prompt.
+    const last = params.messageHistory[params.messageHistory.length - 1];
+    const alreadyInHistoryAsLastLearner =
+      last?.role === 'learner' && last.content === params.currentMessage;
+
+    if (!alreadyInHistoryAsLastLearner) {
+      parts.push(`[USER QUESTION]\n${params.currentMessage}\n`);
+    }
 
     return parts.join('\n');
   }
