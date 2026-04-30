@@ -283,9 +283,12 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (messageIds.length === 0) return [];
 
     const placeholders = messageIds.map(() => '?').join(',');
+    const orderCase = messageIds.map((_, i) => `WHEN ? THEN ${i}`).join(' ');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
-      .all(...messageIds) as any[];
+      .prepare(
+        `SELECT m.* FROM messages m WHERE m.id IN (${placeholders}) ORDER BY CASE m.id ${orderCase} END`
+      )
+      .all(...messageIds, ...messageIds) as any[];
 
     return rows.map(row => ({
       id: row.id,
@@ -315,6 +318,68 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       message.teachingMetadata ? JSON.stringify(message.teachingMetadata) : null,
       message.timestamp.toISOString()
     );
+  }
+
+  async appendMessage(
+    sessionId: string,
+    message: Message,
+    sessionRowUpdates?: Partial<Pick<Session, 'lastActivityAt' | 'sessionState' | 'endedAt'>>
+  ): Promise<void> {
+    const persist = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `
+      INSERT INTO messages (
+        id, session_id, sender, role, content, message_type, teaching_metadata, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `
+        )
+        .run(
+          message.id,
+          message.sessionId,
+          message.role === 'instructor' ? 'ai' : 'learner',
+          message.role,
+          message.content,
+          message.messageType,
+          message.teachingMetadata ? JSON.stringify(message.teachingMetadata) : null,
+          message.timestamp.toISOString()
+        );
+
+      const maxRow = this.db
+        .prepare(
+          'SELECT COALESCE(MAX(sequence_order), -1) AS max_ord FROM session_messages WHERE session_id = ?'
+        )
+        .get(sessionId) as { max_ord: number };
+      const nextOrd = maxRow.max_ord + 1;
+
+      this.db
+        .prepare(
+          'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
+        )
+        .run(sessionId, message.id, nextOrd);
+
+      if (sessionRowUpdates) {
+        const fields: string[] = [];
+        const values: unknown[] = [];
+        if (sessionRowUpdates.sessionState !== undefined) {
+          fields.push('session_state = ?');
+          values.push(sessionRowUpdates.sessionState);
+        }
+        if (sessionRowUpdates.lastActivityAt !== undefined) {
+          fields.push('last_activity_at = ?');
+          values.push(sessionRowUpdates.lastActivityAt.toISOString());
+        }
+        if (sessionRowUpdates.endedAt !== undefined) {
+          fields.push('ended_at = ?');
+          values.push(sessionRowUpdates.endedAt?.toISOString() ?? null);
+        }
+        if (fields.length > 0) {
+          values.push(sessionId);
+          this.db.prepare(`UPDATE sessions SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+        }
+      }
+    });
+    persist();
   }
 
   // Instructor profile operations
