@@ -14,6 +14,7 @@ import { LLMAdapter } from '../../backend/adapters/llm/types';
 import { StorageAdapter } from '../../backend/adapters/storage/types';
 import { DatabaseStorageAdapter } from '../../backend/adapters/storage/database';
 import { OllamaAdapter } from '../../backend/adapters/llm/ollama';
+import { resolveDatabasePath } from './resolve-database-path';
 
 export interface Services {
   sessionOrchestrator: SessionOrchestrator;
@@ -32,7 +33,7 @@ export interface Services {
  */
 export function createServices(): Services {
   // Initialize storage adapter (SQLite for MVP)
-  const dbPath = process.env.DATABASE_PATH || ':memory:';
+  const dbPath = resolveDatabasePath();
   const storageAdapter = new DatabaseStorageAdapter({
     type: 'sqlite',
     connectionString: dbPath,
