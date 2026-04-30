@@ -97,13 +97,17 @@ export class SessionOrchestrator {
       lastActivityAt: new Date(),
     });
 
+    // Include the current learner turn in history for the LLM. loadMessages ran before
+    // saveMessage, so storage-backed history omits this message until the next request.
+    const messageHistoryForPrompt = [...messageHistory, learnerMessage];
+
     // Step 3: Assemble prompt
     // TODO: Assemble full prompt using PromptAssembler
     const fullPrompt = await this.promptAssembler.assemblePrompt({
       session: { ...session, messageIds: updatedMessageIds },
       instructorProfile,
       learnerMemory,
-      messageHistory,
+      messageHistory: messageHistoryForPrompt,
       currentMessage: learnerMessageContent,
     });
 

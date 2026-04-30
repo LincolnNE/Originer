@@ -94,8 +94,16 @@ export class PromptAssembler {
       console.warn('Failed to load response_format.md:', error);
     }
 
-    // 7. Add current learner message
-    parts.push(`[USER QUESTION]\n${params.currentMessage}\n`);
+    // 7. Add current learner message when it is not already the final history turn.
+    // SessionOrchestrator passes the current learner Message at the end of messageHistory;
+    // repeating the same text here duplicates the turn in the LLM prompt.
+    const last = params.messageHistory[params.messageHistory.length - 1];
+    const alreadyInHistoryAsLastLearner =
+      last?.role === 'learner' && last.content === params.currentMessage;
+
+    if (!alreadyInHistoryAsLastLearner) {
+      parts.push(`[USER QUESTION]\n${params.currentMessage}\n`);
+    }
 
     return parts.join('\n');
   }
@@ -229,21 +237,21 @@ export class PromptAssembler {
       return '';
     }
 
-    // Sort by timestamp
-    const sortedMessages = [...messages].sort((a, b) => 
-      a.timestamp.getTime() - b.timestamp.getTime()
-    );
+    // Preserve session turn order (matches messageIds / session_messages.sequence_order).
+    // Sorting by timestamp can reorder the prompt when timestamps collide or diverge from
+    // append order, which breaks teaching context for the LLM.
+    const orderedMessages = [...messages];
 
     // Limit to recent messages if maxTokens specified (rough estimate: 4 chars per token)
-    let messagesToInclude = sortedMessages;
+    let messagesToInclude = orderedMessages;
     if (maxTokens) {
       const maxChars = maxTokens * 4;
       let totalChars = 0;
       const recentMessages: Message[] = [];
       
       // Start from most recent and work backwards
-      for (let i = sortedMessages.length - 1; i >= 0; i--) {
-        const msg = sortedMessages[i];
+      for (let i = orderedMessages.length - 1; i >= 0; i--) {
+        const msg = orderedMessages[i];
         const msgChars = msg.content.length + 50; // Rough estimate including formatting
         if (totalChars + msgChars > maxChars && recentMessages.length > 0) {
           break;
