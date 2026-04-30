@@ -29,6 +29,7 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (config.type === 'sqlite') {
       const dbPath = config.connectionString || ':memory:';
       this.db = new Database(dbPath);
+      this.db.pragma('foreign_keys = ON');
       this.initializeSchema();
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
@@ -151,6 +152,17 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
       CREATE INDEX IF NOT EXISTS idx_session_messages_order ON session_messages(session_id, sequence_order);
     `);
+  }
+
+  async ensureSessionParticipants(instructorId: string, learnerId: string): Promise<void> {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, 'Instructor', NULL, 'friendly')`
+      )
+      .run(instructorId);
+    this.db
+      .prepare(`INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, 'Learner', 'beginner')`)
+      .run(learnerId);
   }
 
   // Session operations

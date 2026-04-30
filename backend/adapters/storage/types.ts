@@ -8,6 +8,12 @@ import {
 } from '../../core/types';
 
 export interface StorageAdapter {
+  /**
+   * Ensures instructor and learner rows exist before persisting a session.
+   * SQLite may not enforce FKs unless PRAGMA foreign_keys=ON; this avoids orphaned sessions.
+   */
+  ensureSessionParticipants?(instructorId: string, learnerId: string): Promise<void>;
+
   // Session operations
   loadSession(sessionId: string): Promise<Session | null>;
   saveSession(session: Session): Promise<void>;
