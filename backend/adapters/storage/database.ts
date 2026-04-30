@@ -209,12 +209,26 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   async saveSession(session: Session): Promise<void> {
     this.ensureSessionForeignKeyRows(session.instructorId, session.learnerId);
 
+    // Use UPSERT instead of INSERT OR REPLACE: REPLACE deletes the row first,
+    // which can violate FK constraints from messages/session_messages and is
+    // unnecessary when we only need to merge scalar session fields.
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO sessions (
+      INSERT INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
         subject, topic, learning_objective, session_state,
         started_at, last_activity_at, ended_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        instructor_id = excluded.instructor_id,
+        learner_id = excluded.learner_id,
+        instructor_profile_id = excluded.instructor_profile_id,
+        subject = excluded.subject,
+        topic = excluded.topic,
+        learning_objective = excluded.learning_objective,
+        session_state = excluded.session_state,
+        started_at = excluded.started_at,
+        last_activity_at = excluded.last_activity_at,
+        ended_at = excluded.ended_at
     `);
 
     stmt.run(
@@ -426,15 +440,24 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveLearnerMemory(memory: LearnerMemory): Promise<void> {
+    this.db
+      .prepare(`INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)`)
+      .run(memory.learnerId, 'Learner', 'beginner');
+
     const weakConcepts = memory.weaknesses || [];
     const masteredConcepts = memory.learnedConcepts
       .filter(c => c.masteryLevel === 'mastered')
       .map(c => c.concept);
 
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO learner_memory (
+      INSERT INTO learner_memory (
         learner_id, weak_concepts, mastered_concepts, explanation_depth_level, updated_at
       ) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(learner_id) DO UPDATE SET
+        weak_concepts = excluded.weak_concepts,
+        mastered_concepts = excluded.mastered_concepts,
+        explanation_depth_level = excluded.explanation_depth_level,
+        updated_at = excluded.updated_at
     `);
 
     stmt.run(
