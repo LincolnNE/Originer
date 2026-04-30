@@ -278,10 +278,16 @@ export class DatabaseStorageAdapter implements StorageAdapter {
 
     const placeholders = messageIds.map(() => '?').join(',');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
 
-    return rows.map(row => ({
+    // Order by session messageIds (canonical order), not created_at.
+    const byId = new Map<string, any>(rows.map(row => [row.id, row]));
+    const ordered = messageIds
+      .map(id => byId.get(id))
+      .filter((row): row is NonNullable<typeof row> => row !== undefined);
+
+    return ordered.map(row => ({
       id: row.id,
       sessionId: row.session_id,
       role: row.role as MessageRole,
