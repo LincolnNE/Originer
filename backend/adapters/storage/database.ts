@@ -181,20 +181,28 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   /**
-   * Replace session_messages rows atomically so a failed insert cannot leave
-   * the junction table empty after a successful DELETE (data loss on reload).
+   * Replace junction rows for a session (DELETE then INSERT in order).
+   * Caller must wrap in a transaction when atomicity with other writes is required.
    */
-  private replaceSessionMessageLinks(sessionId: string, messageIds: string[]): void {
+  private runReplaceSessionMessageLinks(sessionId: string, messageIds: string[]): void {
     const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
     const insertStmt = this.db.prepare(
       'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
     );
     const rows = messageIds.map((id, idx) => ({ id, order: idx }));
+    deleteStmt.run(sessionId);
+    for (const msg of rows) {
+      insertStmt.run(sessionId, msg.id, msg.order);
+    }
+  }
+
+  /**
+   * Replace session_messages rows atomically so a failed insert cannot leave
+   * the junction table empty after a successful DELETE (data loss on reload).
+   */
+  private replaceSessionMessageLinks(sessionId: string, messageIds: string[]): void {
     this.db.transaction(() => {
-      deleteStmt.run(sessionId);
-      for (const msg of rows) {
-        insertStmt.run(sessionId, msg.id, msg.order);
-      }
+      this.runReplaceSessionMessageLinks(sessionId, messageIds);
     })();
   }
 
@@ -221,14 +229,7 @@ export class DatabaseStorageAdapter implements StorageAdapter {
         session.lastActivityAt.toISOString(),
         session.endedAt?.toISOString() || null
       );
-      const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
-      const insertStmt = this.db.prepare(
-        'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
-      );
-      deleteStmt.run(session.id);
-      session.messageIds.forEach((id, idx) => {
-        insertStmt.run(session.id, id, idx);
-      });
+      this.runReplaceSessionMessageLinks(session.id, session.messageIds);
     })();
   }
 

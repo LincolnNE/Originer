@@ -55,6 +55,24 @@ async function main() {
     'after failed update, session_messages must still list prior messages (atomic replace)'
   );
 
+  const loaded = await adapter.loadSession('sess_1');
+  assert.ok(loaded);
+  let saveThrew = false;
+  try {
+    await adapter.saveSession({
+      ...loaded,
+      messageIds: ['msg_ok', 'msg_missing_fk'],
+    });
+  } catch {
+    saveThrew = true;
+  }
+  assert.strictEqual(saveThrew, true, 'saveSession with bad FK should throw');
+  assert.strictEqual(
+    countLinks(),
+    1,
+    'after failed saveSession, session_messages must still list prior messages'
+  );
+
   adapter.close();
   console.log('verify-session-messages-transaction: ok');
 }
