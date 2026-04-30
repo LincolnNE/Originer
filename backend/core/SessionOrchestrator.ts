@@ -87,13 +87,8 @@ export class SessionOrchestrator {
       timestamp: new Date(),
     };
 
-    // TODO: Save learner message
-    await this.storageAdapter.saveMessage(learnerMessage);
-
-    // TODO: Update session with new message ID
     const updatedMessageIds = [...session.messageIds, learnerMessage.id];
-    await this.storageAdapter.updateSession(sessionId, {
-      messageIds: updatedMessageIds,
+    await this.storageAdapter.appendSessionMessage(learnerMessage, {
       lastActivityAt: new Date(),
     });
 
@@ -179,13 +174,8 @@ export class SessionOrchestrator {
       timestamp: new Date(),
     };
 
-    // TODO: Save instructor message
-    await this.storageAdapter.saveMessage(instructorMessage);
-
-    // TODO: Update session with instructor message ID
     const finalMessageIds = [...updatedMessageIds, instructorMessage.id];
-    await this.storageAdapter.updateSession(sessionId, {
-      messageIds: finalMessageIds,
+    await this.storageAdapter.appendSessionMessage(instructorMessage, {
       lastActivityAt: new Date(),
     });
 
