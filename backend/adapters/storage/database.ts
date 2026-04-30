@@ -30,6 +30,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       const dbPath = config.connectionString || ':memory:';
       this.db = new Database(dbPath);
       this.initializeSchema();
+      // Enforce FK constraints (SQLite defaults to OFF). Session rows must reference existing instructors/learners.
+      this.db.pragma('foreign_keys = ON');
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
     }
@@ -181,7 +183,14 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveSession(session: Session): Promise<void> {
-    const stmt = this.db.prepare(`
+    const ensureInstructor = this.db.prepare(`
+      INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, NULL, 'friendly')
+    `);
+    const ensureLearner = this.db.prepare(`
+      INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, 'beginner')
+    `);
+
+    const insertSession = this.db.prepare(`
       INSERT OR REPLACE INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
         subject, topic, learning_objective, session_state,
@@ -189,34 +198,44 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    stmt.run(
-      session.id,
-      session.instructorId,
-      session.learnerId,
-      session.instructorProfileId,
-      session.subject,
-      session.topic,
-      session.learningObjective,
-      session.sessionState,
-      session.startedAt.toISOString(),
-      session.lastActivityAt.toISOString(),
-      session.endedAt?.toISOString() || null
-    );
+    const run = this.db.transaction(() => {
+      ensureInstructor.run(session.instructorId, `Instructor ${session.instructorId}`);
+      ensureLearner.run(session.learnerId, `Learner ${session.learnerId}`);
 
-    // Save message IDs
-    const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
-    deleteStmt.run(session.id);
+      insertSession.run(
+        session.id,
+        session.instructorId,
+        session.learnerId,
+        session.instructorProfileId,
+        session.subject,
+        session.topic,
+        session.learningObjective,
+        session.sessionState,
+        session.startedAt.toISOString(),
+        session.lastActivityAt.toISOString(),
+        session.endedAt?.toISOString() || null
+      );
 
-    const insertStmt = this.db.prepare(
-      'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
-    );
-    const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-      for (const msg of messages) {
-        insertStmt.run(session.id, msg.id, msg.order);
-      }
+      this.replaceSessionMessages(session.id, session.messageIds);
     });
 
-    insertMany(session.messageIds.map((id, idx) => ({ id, order: idx })));
+    run();
+  }
+
+  /**
+   * Atomically replace session_messages rows for a session. With foreign_keys=ON,
+   * a failed INSERT must roll back the DELETE so we do not lose the prior junction state.
+   */
+  private replaceSessionMessages(sessionId: string, messageIds: string[]): void {
+    const deleteSessionMessages = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
+    const insertSessionMessage = this.db.prepare(
+      'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
+    );
+
+    deleteSessionMessages.run(sessionId);
+    messageIds.forEach((id, idx) => {
+      insertSessionMessage.run(sessionId, id, idx);
+    });
   }
 
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
@@ -236,18 +255,10 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       values.push(updates.endedAt?.toISOString() || null);
     }
     if (updates.messageIds !== undefined) {
-      // Delete old message IDs
-      this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
-      // Insert new message IDs
-      const insertStmt = this.db.prepare(
-        'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
-      );
-      const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-        for (const msg of messages) {
-          insertStmt.run(sessionId, msg.id, msg.order);
-        }
+      const replace = this.db.transaction((messageIds: string[]) => {
+        this.replaceSessionMessages(sessionId, messageIds);
       });
-      insertMany(updates.messageIds.map((id, idx) => ({ id, order: idx })));
+      replace(updates.messageIds);
     }
 
     if (fields.length > 0) {
@@ -398,6 +409,10 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveLearnerMemory(memory: LearnerMemory): Promise<void> {
+    this.db
+      .prepare(`INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, 'beginner')`)
+      .run(memory.learnerId, `Learner ${memory.learnerId}`);
+
     const weakConcepts = memory.weaknesses || [];
     const masteredConcepts = memory.learnedConcepts
       .filter(c => c.masteryLevel === 'mastered')
