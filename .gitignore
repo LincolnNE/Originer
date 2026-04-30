@@ -32,6 +32,10 @@ coverage/
 tmp/
 temp/
 
+# Local SQLite (default file path from resolve-database-path)
+data/*.sqlite
+data/*.db
+
 # Vercel
 .vercel
 .vercel.json
