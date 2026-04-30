@@ -30,6 +30,57 @@ export async function registerSessionRoutes(
   sessionOrchestrator: SessionOrchestrator
 ): Promise<void> {
   /**
+   * GET /sessions/:id
+   * Load session for client hydration (lesson routes, session store).
+   */
+  server.get<{ Params: { id: string } }>(
+    '/api/v1/sessions/:id',
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      const { id } = request.params;
+
+      try {
+        const session = await storageAdapter.loadSession(id);
+        if (!session) {
+          return reply.code(404).send({
+            success: false,
+            error: {
+              code: 'SESSION_NOT_FOUND',
+              message: `Session not found: ${id}`,
+            },
+          });
+        }
+
+        return reply.send({
+          success: true,
+          data: {
+            session: {
+              id: session.id,
+              learnerId: session.learnerId,
+              instructorProfileId: session.instructorProfileId,
+              subject: session.subject,
+              topic: session.topic,
+              learningObjective: session.learningObjective,
+              sessionState: session.sessionState,
+              startedAt: session.startedAt.toISOString(),
+              lastActivityAt: session.lastActivityAt.toISOString(),
+              endedAt: session.endedAt ? session.endedAt.toISOString() : null,
+            },
+          },
+        });
+      } catch (error: any) {
+        request.log.error(error);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: 'SESSION_LOAD_ERROR',
+            message: error.message || 'Failed to load session',
+          },
+        });
+      }
+    }
+  );
+
+  /**
    * POST /sessions/start
    * Start a new teaching session
    */
@@ -49,6 +100,8 @@ export async function registerSessionRoutes(
       }
 
       try {
+        await storageAdapter.ensureSessionParticipants?.(instructor_id, learner_id);
+
         const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         
         const session = {
