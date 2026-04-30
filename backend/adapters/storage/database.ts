@@ -196,16 +196,6 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     }
   }
 
-  /**
-   * Replace session_messages rows atomically so a failed insert cannot leave
-   * the junction table empty after a successful DELETE (data loss on reload).
-   */
-  private replaceSessionMessageLinks(sessionId: string, messageIds: string[]): void {
-    this.db.transaction(() => {
-      this.runReplaceSessionMessageLinks(sessionId, messageIds);
-    })();
-  }
-
   async saveSession(session: Session): Promise<void> {
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO sessions (
@@ -249,15 +239,24 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       fields.push('ended_at = ?');
       values.push(updates.endedAt?.toISOString() || null);
     }
-    if (updates.messageIds !== undefined) {
-      this.replaceSessionMessageLinks(sessionId, updates.messageIds);
+
+    const hasMessageIds = updates.messageIds !== undefined;
+    const hasFieldUpdates = fields.length > 0;
+
+    if (!hasMessageIds && !hasFieldUpdates) {
+      return;
     }
 
-    if (fields.length > 0) {
-      values.push(sessionId);
-      const sql = `UPDATE sessions SET ${fields.join(', ')} WHERE id = ?`;
-      this.db.prepare(sql).run(...values);
-    }
+    this.db.transaction(() => {
+      if (hasMessageIds) {
+        this.runReplaceSessionMessageLinks(sessionId, updates.messageIds!);
+      }
+      if (hasFieldUpdates) {
+        values.push(sessionId);
+        const sql = `UPDATE sessions SET ${fields.join(', ')} WHERE id = ?`;
+        this.db.prepare(sql).run(...values);
+      }
+    })();
   }
 
   // Message operations

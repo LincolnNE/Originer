@@ -73,6 +73,65 @@ async function main() {
     'after failed saveSession, session_messages must still list prior messages'
   );
 
+  // If messageIds replace commits before sessions UPDATE, a failed UPDATE leaves
+  // stale last_activity_at but new junction rows (SessionOrchestrator always sends both).
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS verify_abort_session_update
+    BEFORE UPDATE ON sessions
+    WHEN OLD.id = 'sess_atomic_update'
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated sessions row update failure');
+    END;
+  `);
+
+  const atomicSession = {
+    id: 'sess_atomic_update',
+    instructorId: 'inst_1',
+    learnerId: 'learn_1',
+    instructorProfileId: 'inst_1',
+    subject: 'S',
+    topic: 'T',
+    learningObjective: 'L',
+    sessionState: 'active' as const,
+    messageIds: [] as string[],
+    startedAt: new Date(),
+    lastActivityAt: new Date(),
+    endedAt: null,
+  };
+  await adapter.saveSession(atomicSession);
+
+  db.prepare(
+    `INSERT INTO messages (id, session_id, sender, role, content, message_type, teaching_metadata, created_at)
+     VALUES (?, ?, 'learner', 'learner', 'a', 'question', NULL, ?)`
+  ).run('msg_atomic_a', 'sess_atomic_update', new Date().toISOString());
+  db.prepare(
+    `INSERT INTO messages (id, session_id, sender, role, content, message_type, teaching_metadata, created_at)
+     VALUES (?, ?, 'learner', 'learner', 'b', 'question', NULL, ?)`
+  ).run('msg_atomic_b', 'sess_atomic_update', new Date().toISOString());
+
+  await adapter.updateSession('sess_atomic_update', { messageIds: ['msg_atomic_a'] });
+
+  let atomicThrew = false;
+  try {
+    await adapter.updateSession('sess_atomic_update', {
+      messageIds: ['msg_atomic_b'],
+      lastActivityAt: new Date(),
+    });
+  } catch {
+    atomicThrew = true;
+  }
+  assert.strictEqual(atomicThrew, true, 'updateSession should throw when sessions UPDATE fails');
+  const atomicLinks = db
+    .prepare(
+      'SELECT message_id FROM session_messages WHERE session_id = ? ORDER BY sequence_order'
+    )
+    .all('sess_atomic_update') as Array<{ message_id: string }>;
+  assert.deepStrictEqual(
+    atomicLinks.map(r => r.message_id),
+    ['msg_atomic_a'],
+    'junction must roll back with failed sessions UPDATE (same transaction as replace)'
+  );
+
   adapter.close();
   console.log('verify-session-messages-transaction: ok');
 }
