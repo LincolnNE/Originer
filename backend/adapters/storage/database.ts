@@ -198,11 +198,6 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    const deleteSessionMessages = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
-    const insertSessionMessage = this.db.prepare(
-      'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
-    );
-
     const run = this.db.transaction(() => {
       ensureInstructor.run(session.instructorId, `Instructor ${session.instructorId}`);
       ensureLearner.run(session.learnerId, `Learner ${session.learnerId}`);
@@ -221,13 +216,26 @@ export class DatabaseStorageAdapter implements StorageAdapter {
         session.endedAt?.toISOString() || null
       );
 
-      deleteSessionMessages.run(session.id);
-      session.messageIds.forEach((id, idx) => {
-        insertSessionMessage.run(session.id, id, idx);
-      });
+      this.replaceSessionMessages(session.id, session.messageIds);
     });
 
     run();
+  }
+
+  /**
+   * Atomically replace session_messages rows for a session. With foreign_keys=ON,
+   * a failed INSERT must roll back the DELETE so we do not lose the prior junction state.
+   */
+  private replaceSessionMessages(sessionId: string, messageIds: string[]): void {
+    const deleteSessionMessages = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
+    const insertSessionMessage = this.db.prepare(
+      'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
+    );
+
+    deleteSessionMessages.run(sessionId);
+    messageIds.forEach((id, idx) => {
+      insertSessionMessage.run(sessionId, id, idx);
+    });
   }
 
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
@@ -247,18 +255,10 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       values.push(updates.endedAt?.toISOString() || null);
     }
     if (updates.messageIds !== undefined) {
-      // Delete old message IDs
-      this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
-      // Insert new message IDs
-      const insertStmt = this.db.prepare(
-        'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
-      );
-      const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-        for (const msg of messages) {
-          insertStmt.run(sessionId, msg.id, msg.order);
-        }
+      const replace = this.db.transaction((messageIds: string[]) => {
+        this.replaceSessionMessages(sessionId, messageIds);
       });
-      insertMany(updates.messageIds.map((id, idx) => ({ id, order: idx })));
+      replace(updates.messageIds);
     }
 
     if (fields.length > 0) {
