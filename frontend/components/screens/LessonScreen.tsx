@@ -16,7 +16,7 @@
 
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useInstructor } from '../../hooks/useInstructor';
 import { useLessonState } from '../../state/hooks/useLessonState';
 import InstructorMessage from '../InstructorMessage';
@@ -40,22 +40,26 @@ export default function LessonScreen({ sessionId, screenId }: LessonScreenProps)
   const [currentAttempt, setCurrentAttempt] = useState(1);
   const [assessmentResult, setAssessmentResult] = useState<InstructorOutput | null>(null);
 
-  // Load problem presentation on mount
+  // Present problem once per session+screen. Do not depend on `output`: after submit,
+  // `output` becomes `assessment` and would incorrectly re-trigger present_problem.
+  const presentedForKeyRef = useRef<string | null>(null);
+  const screenKey = `${sessionId}:${screenId}`;
+
   useEffect(() => {
-    if (!output || output.type !== 'problem_presentation') {
-      processInput({
-        sessionId,
-        screenId,
-        action: 'present_problem',
-        actionData: {
-          problem: 'Solve for x: 2x + 5 = 15',
-          instructions: 'Type your answer in the box below.',
-          concept: 'linear equations',
-          learningObjective: 'Solve linear equations',
-        },
-      });
-    }
-  }, [sessionId, screenId, output, processInput]);
+    if (presentedForKeyRef.current === screenKey) return;
+    presentedForKeyRef.current = screenKey;
+    void processInput({
+      sessionId,
+      screenId,
+      action: 'present_problem',
+      actionData: {
+        problem: 'Solve for x: 2x + 5 = 15',
+        instructions: 'Type your answer in the box below.',
+        concept: 'linear equations',
+        learningObjective: 'Solve linear equations',
+      },
+    });
+  }, [screenKey, sessionId, screenId, processInput]);
 
   // Handle assessment result
   useEffect(() => {
