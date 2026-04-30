@@ -208,7 +208,14 @@ export async function registerInstructorRoutes(
         // Create a temporary session for preview
         const tempSessionId = `preview_${Date.now()}`;
         const tempLearnerId = `temp_learner_${Date.now()}`;
-        
+
+        // SQLite FKs require learner/instructor rows before sessions (see DatabaseStorageAdapter)
+        await storageAdapter.createLearner({
+          id: tempLearnerId,
+          name: 'Preview learner',
+          level: 'beginner',
+        });
+
         // Create temporary session
         const tempSession = {
           id: tempSessionId,

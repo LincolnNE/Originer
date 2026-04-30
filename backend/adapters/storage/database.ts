@@ -29,6 +29,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (config.type === 'sqlite') {
       const dbPath = config.connectionString || ':memory:';
       this.db = new Database(dbPath);
+      // Enforce referential integrity (off by default in SQLite)
+      this.db.pragma('foreign_keys = ON');
       this.initializeSchema();
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
@@ -151,6 +153,14 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
       CREATE INDEX IF NOT EXISTS idx_session_messages_order ON session_messages(session_id, sequence_order);
     `);
+
+    // MVP: rows referenced by the landing page and session start (foreign keys)
+    this.db.exec(`
+      INSERT OR IGNORE INTO instructors (id, name, bio, tone)
+      VALUES ('default', 'Default instructor', NULL, 'friendly');
+      INSERT OR IGNORE INTO learners (id, name, level)
+      VALUES ('default', 'Learner', 'beginner');
+    `);
   }
 
   // Session operations
@@ -180,7 +190,25 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     };
   }
 
+  /**
+   * Ensure FK targets exist before inserting a session row.
+   * SQLite enforces foreign_keys only when enabled; callers may reference
+   * synthetic IDs (e.g. client default profile) or legacy DBs without seed rows.
+   */
+  private ensureSessionForeignKeyRows(instructorId: string, learnerId: string): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, NULL, 'friendly')`
+      )
+      .run(instructorId, `Instructor ${instructorId}`);
+    this.db
+      .prepare(`INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)`)
+      .run(learnerId, 'Learner', 'beginner');
+  }
+
   async saveSession(session: Session): Promise<void> {
+    this.ensureSessionForeignKeyRows(session.instructorId, session.learnerId);
+
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
