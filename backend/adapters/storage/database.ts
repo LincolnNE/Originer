@@ -335,7 +335,7 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     }));
   }
 
-  async saveMessage(message: Message): Promise<void> {
+  private insertMessageRow(message: Message): void {
     const stmt = this.db.prepare(`
       INSERT INTO messages (
         id, session_id, sender, role, content, message_type, teaching_metadata, created_at
@@ -352,6 +352,36 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       message.teachingMetadata ? JSON.stringify(message.teachingMetadata) : null,
       message.timestamp.toISOString()
     );
+  }
+
+  async saveMessage(message: Message): Promise<void> {
+    this.insertMessageRow(message);
+  }
+
+  async appendSessionMessage(
+    message: Message,
+    sessionUpdates?: { lastActivityAt?: Date }
+  ): Promise<void> {
+    const linkStmt = this.db.prepare(`
+      INSERT INTO session_messages (session_id, message_id, sequence_order)
+      VALUES (
+        ?,
+        ?,
+        (SELECT COALESCE(MAX(sequence_order), -1) + 1 FROM session_messages sm WHERE sm.session_id = ?)
+      )
+    `);
+
+    const persist = this.db.transaction(() => {
+      this.insertMessageRow(message);
+      linkStmt.run(message.sessionId, message.id, message.sessionId);
+      if (sessionUpdates?.lastActivityAt !== undefined) {
+        this.db
+          .prepare('UPDATE sessions SET last_activity_at = ? WHERE id = ?')
+          .run(sessionUpdates.lastActivityAt.toISOString(), message.sessionId);
+      }
+    });
+
+    persist();
   }
 
   // Instructor profile operations
