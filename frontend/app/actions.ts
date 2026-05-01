@@ -4,12 +4,28 @@ import { redirect } from 'next/navigation';
 
 /**
  * Base URL for API calls from Server Actions.
- * When NEXT_PUBLIC_API_URL is unset, use same-origin `/api/v1` so requests hit this deployment's
- * Vercel rewrite (never use path-relative `fetch('/api/...')` — Node resolves that incorrectly).
+ *
+ * `next.config.js` injects NEXT_PUBLIC_API_URL with a localhost default for local dev. On Vercel
+ * that value is baked into the build when the project env var is missing, so we must not call
+ * localhost from serverless — use this deployment's origin (VERCEL_URL) or same-origin `/api/v1`.
  */
 function apiV1Base(): string {
-  const origin = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? '';
-  return origin ? `${origin}/api/v1` : '/api/v1';
+  const raw = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? '';
+  const isLocalDevDefault =
+    raw === '' || raw === 'http://localhost:4094' || raw === 'http://127.0.0.1:4094';
+
+  if (process.env.VERCEL && isLocalDevDefault) {
+    const vercelHost = process.env.VERCEL_URL;
+    if (vercelHost) {
+      return `https://${vercelHost}/api/v1`;
+    }
+    return '/api/v1';
+  }
+
+  if (raw) {
+    return `${raw}/api/v1`;
+  }
+  return '/api/v1';
 }
 
 export async function startSession() {
