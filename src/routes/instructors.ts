@@ -225,6 +225,17 @@ export async function registerInstructorRoutes(
           endedAt: null,
         };
 
+        // SQLite FK (foreign_keys=ON): sessions.learner_id must reference learners.id
+        try {
+          await storageAdapter.createLearner({
+            id: tempLearnerId,
+            name: 'Preview',
+            level: 'beginner',
+          });
+        } catch {
+          // row already exists (unlikely for timestamp-based id)
+        }
+
         await storageAdapter.saveSession(tempSession);
 
         // Generate response

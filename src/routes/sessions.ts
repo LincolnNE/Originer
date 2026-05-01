@@ -17,6 +17,15 @@ interface StartSessionRequest {
   learning_objective?: string;
 }
 
+/** Body for POST /api/v1/sessions (frontend contract) */
+interface CreateSessionBody {
+  instructorProfileId?: string;
+  learnerId?: string;
+  subject?: string;
+  topic?: string;
+  learningObjective?: string;
+}
+
 interface SendMessageRequest {
   message: string;
 }
@@ -29,6 +38,203 @@ export async function registerSessionRoutes(
   storageAdapter: StorageAdapter,
   sessionOrchestrator: SessionOrchestrator
 ): Promise<void> {
+  const DEFAULT_INSTRUCTOR_ID = 'default';
+  const ANONYMOUS_LEARNER_ID = 'learner_anonymous';
+
+  async function ensureDefaultInstructorAndLearner(): Promise<void> {
+    const db = storageAdapter as any;
+    if (typeof db.createInstructor === 'function' && typeof db.createLearner === 'function') {
+      try {
+        await db.createInstructor({
+          id: DEFAULT_INSTRUCTOR_ID,
+          name: 'Default Instructor',
+          bio: 'Built-in instructor for MVP sessions',
+          tone: 'friendly',
+        });
+      } catch {
+        // already exists
+      }
+      try {
+        await db.createLearner({
+          id: ANONYMOUS_LEARNER_ID,
+          name: 'Anonymous',
+          level: 'beginner',
+        });
+      } catch {
+        // already exists
+      }
+    }
+  }
+
+  /** Satisfy SQLite FK on sessions.learner_id for arbitrary client-supplied IDs. */
+  async function ensureLearnerRow(learnerId: string): Promise<void> {
+    const db = storageAdapter as any;
+    if (typeof db.createLearner !== 'function') return;
+    try {
+      await db.createLearner({
+        id: learnerId,
+        name: 'Learner',
+        level: 'beginner',
+      });
+    } catch {
+      // already exists
+    }
+  }
+
+  /** Satisfy SQLite FK on sessions.instructor_id when clients omit instructor setup. */
+  async function ensureInstructorRow(instructorId: string): Promise<void> {
+    const db = storageAdapter as any;
+    if (typeof db.createInstructor !== 'function') return;
+    try {
+      await db.createInstructor({
+        id: instructorId,
+        name: 'Instructor',
+        bio: null,
+        tone: 'friendly',
+      });
+    } catch {
+      // already exists
+    }
+  }
+
+  /**
+   * POST /api/v1/sessions
+   * Create session (shape expected by frontend: data.session.id)
+   */
+  server.post<{ Body: CreateSessionBody }>(
+    '/api/v1/sessions',
+    async (request: FastifyRequest<{ Body: CreateSessionBody }>, reply: FastifyReply) => {
+      const {
+        instructorProfileId,
+        learnerId,
+        subject,
+        topic,
+        learningObjective,
+      } = request.body || {};
+
+      const instructorId = instructorProfileId?.trim() || DEFAULT_INSTRUCTOR_ID;
+      const resolvedLearnerId = learnerId?.trim() || ANONYMOUS_LEARNER_ID;
+
+      try {
+        await ensureDefaultInstructorAndLearner();
+        await ensureLearnerRow(resolvedLearnerId);
+
+        // Validate instructor *before* any stub insert: ensureInstructorRow would create a row
+        // that makes loadInstructorProfile succeed and bypass this check.
+        const existingInstructor = await storageAdapter.loadInstructorProfile(instructorId);
+        if (!existingInstructor && instructorId !== DEFAULT_INSTRUCTOR_ID) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: 'INVALID_REQUEST',
+              message: `Instructor not found: ${instructorId}`,
+            },
+          });
+        }
+
+        await ensureInstructorRow(instructorId);
+
+        const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const now = new Date();
+
+        const session = {
+          id: sessionId,
+          instructorId,
+          learnerId: resolvedLearnerId,
+          instructorProfileId: instructorId,
+          subject: subject || 'General',
+          topic: topic || 'Introduction',
+          learningObjective: learningObjective || 'Learn and practice',
+          sessionState: 'active' as const,
+          messageIds: [],
+          startedAt: now,
+          lastActivityAt: now,
+          endedAt: null,
+        };
+
+        await storageAdapter.saveSession(session);
+
+        return reply.send({
+          success: true,
+          data: {
+            session: {
+              id: session.id,
+              learnerId: session.learnerId,
+              instructorProfileId: session.instructorProfileId,
+              subject: session.subject,
+              topic: session.topic,
+              learningObjective: session.learningObjective,
+              sessionState: session.sessionState,
+              startedAt: session.startedAt.toISOString(),
+              lastActivityAt: session.lastActivityAt.toISOString(),
+              endedAt: session.endedAt,
+            },
+          },
+        });
+      } catch (error: any) {
+        request.log.error(error);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: 'SESSION_CREATION_ERROR',
+            message: error.message || 'Failed to create session',
+          },
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /api/v1/sessions/:id
+   * Load session (frontend sessionsApi.getSession)
+   */
+  server.get<{ Params: { id: string } }>(
+    '/api/v1/sessions/:id',
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      const { id } = request.params;
+
+      try {
+        const session = await storageAdapter.loadSession(id);
+        if (!session) {
+          return reply.code(404).send({
+            success: false,
+            error: {
+              code: 'SESSION_NOT_FOUND',
+              message: `Session not found: ${id}`,
+            },
+          });
+        }
+
+        return reply.send({
+          success: true,
+          data: {
+            session: {
+              id: session.id,
+              learnerId: session.learnerId,
+              instructorProfileId: session.instructorProfileId,
+              subject: session.subject,
+              topic: session.topic,
+              learningObjective: session.learningObjective,
+              sessionState: session.sessionState,
+              startedAt: session.startedAt.toISOString(),
+              lastActivityAt: session.lastActivityAt.toISOString(),
+              endedAt: session.endedAt ? session.endedAt.toISOString() : null,
+            },
+          },
+        });
+      } catch (error: any) {
+        request.log.error(error);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: 'SESSION_FETCH_ERROR',
+            message: error.message || 'Failed to load session',
+          },
+        });
+      }
+    }
+  );
+
   /**
    * POST /sessions/start
    * Start a new teaching session
@@ -49,6 +255,19 @@ export async function registerSessionRoutes(
       }
 
       try {
+        const instructorProfile = await storageAdapter.loadInstructorProfile(instructor_id);
+        if (!instructorProfile) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: 'INVALID_REQUEST',
+              message: `Instructor not found: ${instructor_id}`,
+            },
+          });
+        }
+
+        await ensureLearnerRow(learner_id);
+
         const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         
         const session = {
