@@ -181,6 +181,23 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveSession(session: Session): Promise<void> {
+    const existingRows = this.db
+      .prepare(
+        'SELECT message_id FROM session_messages WHERE session_id = ? ORDER BY sequence_order'
+      )
+      .all(session.id) as Array<{ message_id: string }>;
+    const existingIds = existingRows.map(r => r.message_id);
+
+    // Callers often pass messageIds: [] when they only intend to update the sessions row.
+    // If we always REPLACE junction rows from that array, a second saveSession wipes all
+    // stored message IDs (silent data loss) while rows in `messages` remain.
+    const idsToPersist =
+      session.messageIds.length > 0
+        ? session.messageIds
+        : existingIds.length > 0
+          ? existingIds
+          : [];
+
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
@@ -210,9 +227,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       );
 
       deleteStmt.run(session.id);
-      const rows = session.messageIds.map((id, idx) => ({ id, order: idx }));
-      for (const msg of rows) {
-        insertStmt.run(session.id, msg.id, msg.order);
+      for (let idx = 0; idx < idsToPersist.length; idx++) {
+        insertStmt.run(session.id, idsToPersist[idx], idx);
       }
     });
 
