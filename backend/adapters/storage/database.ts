@@ -151,6 +151,34 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
       CREATE INDEX IF NOT EXISTS idx_session_messages_order ON session_messages(session_id, sequence_order);
     `);
+
+    this.ensureBootstrapEntities();
+  }
+
+  /**
+   * Idempotent default instructor/learner so POST /sessions/start works on an empty DB.
+   * IDs align with `ORIGINER_DEFAULT_*` env vars in frontend server actions (defaults below).
+   */
+  private ensureBootstrapEntities(): void {
+    const instructorId =
+      process.env.ORIGINER_DEFAULT_INSTRUCTOR_ID ?? 'default_instructor';
+    const learnerId =
+      process.env.ORIGINER_DEFAULT_LEARNER_ID ?? 'default_learner';
+
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, ?, ?)`
+      )
+      .run(
+        instructorId,
+        'Default Instructor',
+        'Bootstrap instructor for local/dev sessions.',
+        'friendly'
+      );
+
+    this.db
+      .prepare(`INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)`)
+      .run(learnerId, 'Guest Learner', 'beginner');
   }
 
   // Session operations
