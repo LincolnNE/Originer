@@ -278,10 +278,26 @@ export class DatabaseStorageAdapter implements StorageAdapter {
 
     const placeholders = messageIds.map(() => '?').join(',');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
 
-    return rows.map(row => ({
+    const byId = new Map<string, any>(rows.map(row => [row.id as string, row]));
+
+    // Preserve session transcript order (messageIds sequence). Ordering only by
+    // created_at corrupts history when multiple messages share the same timestamp,
+    // which is common for back-to-back inserts in one request cycle.
+    const seen = new Set<string>();
+    const ordered: any[] = [];
+    for (const id of messageIds) {
+      if (seen.has(id)) continue;
+      const row = byId.get(id);
+      if (row) {
+        seen.add(id);
+        ordered.push(row);
+      }
+    }
+
+    return ordered.map(row => ({
       id: row.id,
       sessionId: row.session_id,
       role: row.role as MessageRole,
