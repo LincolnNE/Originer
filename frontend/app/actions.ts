@@ -7,8 +7,9 @@ export async function startSession() {
   const path = '/api/v1/sessions/start';
   const apiUrl = apiBaseUrl ? `${apiBaseUrl.replace(/\/$/, '')}${path}` : path;
 
+  let response: Response;
   try {
-    const response = await fetch(apiUrl, {
+    response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -21,20 +22,25 @@ export async function startSession() {
         learning_objective: 'Get started with learning',
       }),
     });
-
-    if (!response.ok) {
-      redirect('/');
-    }
-
-    const result = await response.json();
-
-    const sessionId = result.data?.session_id;
-    if (result.success && typeof sessionId === 'string' && sessionId.length > 0) {
-      redirect(`/lessons/${sessionId}/screen_001`);
-    } else {
-      redirect('/');
-    }
-  } catch (error) {
+  } catch {
     redirect('/');
   }
+
+  if (!response.ok) {
+    redirect('/');
+  }
+
+  let result: { success?: boolean; data?: { session_id?: string } };
+  try {
+    result = await response.json();
+  } catch {
+    redirect('/');
+  }
+
+  const sessionId = result.data?.session_id;
+  if (result.success && typeof sessionId === 'string' && sessionId.length > 0) {
+    redirect(`/lessons/${sessionId}/screen_001`);
+  }
+
+  redirect('/');
 }
