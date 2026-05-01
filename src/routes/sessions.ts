@@ -40,6 +40,30 @@ function resolveInstructorId(instructorProfileId?: string): string {
   return instructorProfileId;
 }
 
+async function validateSessionActors(
+  storageAdapter: StorageAdapter,
+  instructorId: string,
+  learnerId: string,
+  reply: FastifyReply
+): Promise<boolean> {
+  const validate = storageAdapter.validateSessionActorIds;
+  if (!validate) {
+    return true;
+  }
+  const result = await validate(instructorId, learnerId);
+  if (result.ok) {
+    return true;
+  }
+  await reply.code(400).send({
+    success: false,
+    error: {
+      code: 'INVALID_ACTOR',
+      message: result.message,
+    },
+  });
+  return false;
+}
+
 /**
  * Register session routes
  */
@@ -66,6 +90,10 @@ export async function registerSessionRoutes(
 
       const instructorId = resolveInstructorId(instructorProfileId);
       const resolvedLearnerId = learnerId || DEFAULT_LEARNER_ID;
+
+      if (!(await validateSessionActors(storageAdapter, instructorId, resolvedLearnerId, reply))) {
+        return;
+      }
 
       try {
         const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -183,6 +211,10 @@ export async function registerSessionRoutes(
             message: 'Missing required fields: instructor_id, learner_id',
           },
         });
+      }
+
+      if (!(await validateSessionActors(storageAdapter, instructor_id, learner_id, reply))) {
+        return;
       }
 
       try {

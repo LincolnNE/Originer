@@ -29,6 +29,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (config.type === 'sqlite') {
       const dbPath = config.connectionString || ':memory:';
       this.db = new Database(dbPath);
+      // SQLite defaults to foreign_keys=OFF; enforce FKs so bad actor IDs fail at write time.
+      this.db.pragma('foreign_keys = ON');
       this.initializeSchema();
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
@@ -168,6 +170,25 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     this.db
       .prepare(`INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)`)
       .run('learner_default', 'Anonymous Learner', 'beginner');
+  }
+
+  async validateSessionActorIds(
+    instructorId: string,
+    learnerId: string
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
+    const instructorExists = this.db
+      .prepare('SELECT 1 FROM instructors WHERE id = ?')
+      .get(instructorId);
+    if (!instructorExists) {
+      return { ok: false, message: `Instructor not found: ${instructorId}` };
+    }
+    const learnerExists = this.db
+      .prepare('SELECT 1 FROM learners WHERE id = ?')
+      .get(learnerId);
+    if (!learnerExists) {
+      return { ok: false, message: `Learner not found: ${learnerId}` };
+    }
+    return { ok: true };
   }
 
   // Session operations
