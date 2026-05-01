@@ -2,17 +2,21 @@
 
 import { redirect } from 'next/navigation';
 
-function apiOrigin(): string {
-  const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? '';
-  return base;
+/**
+ * Base URL for API calls from Server Actions.
+ * When NEXT_PUBLIC_API_URL is unset, use same-origin `/api/v1` so requests hit this deployment's
+ * Vercel rewrite (never use path-relative `fetch('/api/...')` — Node resolves that incorrectly).
+ */
+function apiV1Base(): string {
+  const origin = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? '';
+  return origin ? `${origin}/api/v1` : '/api/v1';
 }
 
 export async function startSession() {
-  const origin = apiOrigin();
-  const prefix = origin ? `${origin}` : '';
+  const apiBase = apiV1Base();
 
   try {
-    const learnerRes = await fetch(`${prefix}/api/v1/learners`, {
+    const learnerRes = await fetch(`${apiBase}/learners`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'Learner', level: 'beginner' }),
@@ -23,7 +27,7 @@ export async function startSession() {
       return;
     }
 
-    const instructorRes = await fetch(`${prefix}/api/v1/instructors`, {
+    const instructorRes = await fetch(`${apiBase}/instructors`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'Instructor', tone: 'friendly' }),
@@ -34,7 +38,7 @@ export async function startSession() {
       return;
     }
 
-    const sessionRes = await fetch(`${prefix}/api/v1/sessions/start`, {
+    const sessionRes = await fetch(`${apiBase}/sessions/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
