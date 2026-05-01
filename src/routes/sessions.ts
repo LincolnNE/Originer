@@ -118,8 +118,9 @@ export async function registerSessionRoutes(
       try {
         await ensureDefaultInstructorAndLearner();
         await ensureLearnerRow(resolvedLearnerId);
-        await ensureInstructorRow(instructorId);
 
+        // Validate instructor *before* any stub insert: ensureInstructorRow would create a row
+        // that makes loadInstructorProfile succeed and bypass this check.
         const existingInstructor = await storageAdapter.loadInstructorProfile(instructorId);
         if (!existingInstructor && instructorId !== DEFAULT_INSTRUCTOR_ID) {
           return reply.code(400).send({
@@ -130,6 +131,8 @@ export async function registerSessionRoutes(
             },
           });
         }
+
+        await ensureInstructorRow(instructorId);
 
         const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         const now = new Date();
@@ -252,7 +255,17 @@ export async function registerSessionRoutes(
       }
 
       try {
-        await ensureInstructorRow(instructor_id);
+        const instructorProfile = await storageAdapter.loadInstructorProfile(instructor_id);
+        if (!instructorProfile) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: 'INVALID_REQUEST',
+              message: `Instructor not found: ${instructor_id}`,
+            },
+          });
+        }
+
         await ensureLearnerRow(learner_id);
 
         const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
