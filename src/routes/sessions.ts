@@ -7,11 +7,14 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { StorageAdapter } from '../../backend/adapters/storage/types';
+import { DatabaseStorageAdapter } from '../../backend/adapters/storage/database';
 import { SessionOrchestrator } from '../../backend/core/SessionOrchestrator';
 
 interface StartSessionRequest {
-  instructor_id: string;
-  learner_id: string;
+  instructor_id?: string;
+  /** Alias used by some clients (matches instructor row id for MVP) */
+  instructor_profile_id?: string;
+  learner_id?: string;
   subject?: string;
   topic?: string;
   learning_objective?: string;
@@ -36,19 +39,29 @@ export async function registerSessionRoutes(
   server.post<{ Body: StartSessionRequest }>(
     '/api/v1/sessions/start',
     async (request: FastifyRequest<{ Body: StartSessionRequest }>, reply: FastifyReply) => {
-      const { instructor_id, learner_id, subject, topic, learning_objective } = request.body;
+      const { subject, topic, learning_objective } = request.body;
+      const instructor_id =
+        request.body.instructor_id || request.body.instructor_profile_id;
+      const learner_id =
+        request.body.learner_id ||
+        `learner_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 
-      if (!instructor_id || !learner_id) {
+      if (!instructor_id) {
         return reply.code(400).send({
           success: false,
           error: {
             code: 'INVALID_REQUEST',
-            message: 'Missing required fields: instructor_id, learner_id',
+            message:
+              'Missing required field: instructor_id (or instructor_profile_id for compatibility)',
           },
         });
       }
 
       try {
+        if (storageAdapter instanceof DatabaseStorageAdapter) {
+          storageAdapter.ensureInstructorAndLearnerExist(instructor_id, learner_id);
+        }
+
         const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         
         const session = {
@@ -72,6 +85,11 @@ export async function registerSessionRoutes(
           success: true,
           data: {
             session_id: sessionId,
+            instructor_id,
+            learner_id,
+            subject: session.subject,
+            topic: session.topic,
+            learning_objective: session.learningObjective,
           },
         });
       } catch (error: any) {
