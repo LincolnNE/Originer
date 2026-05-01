@@ -208,12 +208,25 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveSession(session: Session): Promise<void> {
+    // Use UPSERT, not INSERT OR REPLACE: with foreign_keys=ON, REPLACE deletes the
+    // existing sessions row first, which CASCADE-deletes messages and session_messages.
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO sessions (
+      INSERT INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
         subject, topic, learning_objective, session_state,
         started_at, last_activity_at, ended_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        instructor_id = excluded.instructor_id,
+        learner_id = excluded.learner_id,
+        instructor_profile_id = excluded.instructor_profile_id,
+        subject = excluded.subject,
+        topic = excluded.topic,
+        learning_objective = excluded.learning_objective,
+        session_state = excluded.session_state,
+        started_at = excluded.started_at,
+        last_activity_at = excluded.last_activity_at,
+        ended_at = excluded.ended_at
     `);
 
     stmt.run(
