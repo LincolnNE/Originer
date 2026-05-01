@@ -172,6 +172,19 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       .run('learner_default', 'Anonymous Learner', 'beginner');
   }
 
+  /**
+   * Ensures a learners row exists so session/message FK constraints succeed.
+   * Used for ephemeral preview learners that are not created via POST /learners.
+   */
+  async ensureLearnerRowExists(
+    learnerId: string,
+    name = 'Ephemeral learner'
+  ): Promise<void> {
+    this.db
+      .prepare(`INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)`)
+      .run(learnerId, name, 'beginner');
+  }
+
   async validateSessionActorIds(
     instructorId: string,
     learnerId: string
