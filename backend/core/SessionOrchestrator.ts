@@ -71,11 +71,6 @@ export class SessionOrchestrator {
       throw new Error(`Learner memory not found: ${session.learnerId}`);
     }
 
-    // TODO: Load message history
-    const messageHistory = await this.storageAdapter.loadMessages(
-      session.messageIds
-    );
-
     // Step 2: Save learner message
     // TODO: Create learner message object
     const learnerMessage: Message = {
@@ -90,17 +85,28 @@ export class SessionOrchestrator {
     // TODO: Save learner message
     await this.storageAdapter.saveMessage(learnerMessage);
 
-    // TODO: Update session with new message ID
-    const updatedMessageIds = [...session.messageIds, learnerMessage.id];
+    // Do not rewrite messageIds from stale session.messageIds — concurrent handlers append
+    // from the same snapshot and would drop each other's IDs in session_messages. loadSession
+    // derives order from the messages table; refresh activity only here.
     await this.storageAdapter.updateSession(sessionId, {
-      messageIds: updatedMessageIds,
       lastActivityAt: new Date(),
     });
+
+    // Reload so message history includes this learner row and concurrent turns (other
+    // requests may have saved messages while we were working).
+    // messages while we were working). loadSession order comes from the messages table.
+    const sessionAfterLearner = await this.storageAdapter.loadSession(sessionId);
+    if (!sessionAfterLearner) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    const messageHistory = await this.storageAdapter.loadMessages(
+      sessionAfterLearner.messageIds
+    );
 
     // Step 3: Assemble prompt
     // TODO: Assemble full prompt using PromptAssembler
     const fullPrompt = await this.promptAssembler.assemblePrompt({
-      session: { ...session, messageIds: updatedMessageIds },
+      session: sessionAfterLearner,
       instructorProfile,
       learnerMemory,
       messageHistory,
@@ -127,7 +133,7 @@ export class SessionOrchestrator {
     // TODO: Validate response using ResponseValidator
     let validationResult = this.responseValidator.validate({
       response: rawResponse,
-      session: { ...session, messageIds: updatedMessageIds },
+      session: sessionAfterLearner,
       instructorProfile,
       learnerMessage: learnerMessageContent,
     });
@@ -151,7 +157,7 @@ export class SessionOrchestrator {
           // TODO: Re-validate fallback response
           validationResult = this.responseValidator.validate({
             response: rawResponse,
-            session: { ...session, messageIds: updatedMessageIds },
+            session: sessionAfterLearner,
             instructorProfile,
             learnerMessage: learnerMessageContent,
           });
@@ -182,10 +188,14 @@ export class SessionOrchestrator {
     // TODO: Save instructor message
     await this.storageAdapter.saveMessage(instructorMessage);
 
-    // TODO: Update session with instructor message ID
-    const finalMessageIds = [...updatedMessageIds, instructorMessage.id];
+    // Sync session message pointers from DB (includes this instructor row and any concurrent
+    // messages) so session_messages stays aligned when callers still update the junction.
+    const sessionLatest = await this.storageAdapter.loadSession(sessionId);
+    if (!sessionLatest) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
     await this.storageAdapter.updateSession(sessionId, {
-      messageIds: finalMessageIds,
+      messageIds: sessionLatest.messageIds,
       lastActivityAt: new Date(),
     });
 
