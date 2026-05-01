@@ -12,6 +12,6 @@
     "moduleResolution": "node",
     "baseUrl": "."
   },
-  "include": ["src/**/*", "api/**/*"],
-  "exclude": ["node_modules", "dist", "tests", "frontend", "backend"]
+  "include": ["src/**/*", "api/**/*", "backend/**/*.ts"],
+  "exclude": ["node_modules", "dist", "tests", "frontend"]
 }

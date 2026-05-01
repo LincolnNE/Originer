@@ -151,6 +151,55 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
       CREATE INDEX IF NOT EXISTS idx_session_messages_order ON session_messages(session_id, sequence_order);
     `);
+
+    this.ensureBootstrapEntities();
+  }
+
+  /**
+   * Idempotent default instructor/learner so POST /sessions/start works on an empty DB.
+   * IDs align with `ORIGINER_DEFAULT_*` env vars in frontend server actions (defaults below).
+   */
+  private ensureBootstrapEntities(): void {
+    const instructorId =
+      process.env.ORIGINER_DEFAULT_INSTRUCTOR_ID ?? 'default_instructor';
+    const learnerId =
+      process.env.ORIGINER_DEFAULT_LEARNER_ID ?? 'default_learner';
+
+    this.ensureParticipantsExist(instructorId, learnerId, {
+      instructorName: 'Default Instructor',
+      instructorBio: 'Bootstrap instructor for local/dev sessions.',
+      learnerName: 'Guest Learner',
+    });
+  }
+
+  /**
+   * Ensures FK targets exist before inserting into `sessions`.
+   * SQLite foreign keys are optional unless PRAGMA foreign_keys=ON; without this,
+   * mismatched env/config could insert orphan sessions that fail when FKs are enforced.
+   */
+  private ensureParticipantsExist(
+    instructorId: string,
+    learnerId: string,
+    labels?: {
+      instructorName?: string;
+      instructorBio?: string;
+      learnerName?: string;
+    }
+  ): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, ?, ?)`
+      )
+      .run(
+        instructorId,
+        labels?.instructorName ?? 'Session Instructor',
+        labels?.instructorBio ?? 'Auto-created for session storage.',
+        'friendly'
+      );
+
+    this.db
+      .prepare(`INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)`)
+      .run(learnerId, labels?.learnerName ?? 'Learner', 'beginner');
   }
 
   // Session operations
@@ -181,6 +230,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveSession(session: Session): Promise<void> {
+    this.ensureParticipantsExist(session.instructorId, session.learnerId);
+
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
