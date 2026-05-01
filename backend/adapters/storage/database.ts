@@ -181,7 +181,7 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveSession(session: Session): Promise<void> {
-    const stmt = this.db.prepare(`
+    const upsertSession = this.db.prepare(`
       INSERT OR REPLACE INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
         subject, topic, learning_objective, session_state,
@@ -189,34 +189,35 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    stmt.run(
-      session.id,
-      session.instructorId,
-      session.learnerId,
-      session.instructorProfileId,
-      session.subject,
-      session.topic,
-      session.learningObjective,
-      session.sessionState,
-      session.startedAt.toISOString(),
-      session.lastActivityAt.toISOString(),
-      session.endedAt?.toISOString() || null
-    );
-
-    // Save message IDs
-    const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
-    deleteStmt.run(session.id);
-
-    const insertStmt = this.db.prepare(
+    const deleteJunction = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
+    const insertJunction = this.db.prepare(
       'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
     );
-    const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-      for (const msg of messages) {
-        insertStmt.run(session.id, msg.id, msg.order);
-      }
+
+    // One transaction: never leave session_messages wiped if a later step fails
+    // (otherwise loadSession returns [] while messages rows still exist — data loss from the app's view).
+    const tx = this.db.transaction((sess: Session) => {
+      upsertSession.run(
+        sess.id,
+        sess.instructorId,
+        sess.learnerId,
+        sess.instructorProfileId,
+        sess.subject,
+        sess.topic,
+        sess.learningObjective,
+        sess.sessionState,
+        sess.startedAt.toISOString(),
+        sess.lastActivityAt.toISOString(),
+        sess.endedAt?.toISOString() || null
+      );
+
+      deleteJunction.run(sess.id);
+      sess.messageIds.forEach((messageId, idx) => {
+        insertJunction.run(sess.id, messageId, idx);
+      });
     });
 
-    insertMany(session.messageIds.map((id, idx) => ({ id, order: idx })));
+    tx(session);
   }
 
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
@@ -235,26 +236,34 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       fields.push('ended_at = ?');
       values.push(updates.endedAt?.toISOString() || null);
     }
-    if (updates.messageIds !== undefined) {
-      // Delete old message IDs
-      this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
-      // Insert new message IDs
-      const insertStmt = this.db.prepare(
-        'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
-      );
-      const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-        for (const msg of messages) {
-          insertStmt.run(sessionId, msg.id, msg.order);
-        }
-      });
-      insertMany(updates.messageIds.map((id, idx) => ({ id, order: idx })));
+
+    const messageIds = updates.messageIds;
+    const hasMessageUpdate = messageIds !== undefined;
+    const hasSessionRowUpdate = fields.length > 0;
+
+    if (!hasMessageUpdate && !hasSessionRowUpdate) {
+      return;
     }
 
-    if (fields.length > 0) {
-      values.push(sessionId);
-      const sql = `UPDATE sessions SET ${fields.join(', ')} WHERE id = ?`;
-      this.db.prepare(sql).run(...values);
-    }
+    const deleteJunction = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
+    const insertJunction = this.db.prepare(
+      'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
+    );
+
+    const tx = this.db.transaction(() => {
+      if (hasMessageUpdate) {
+        deleteJunction.run(sessionId);
+        messageIds!.forEach((messageId, idx) => {
+          insertJunction.run(sessionId, messageId, idx);
+        });
+      }
+      if (hasSessionRowUpdate) {
+        const sql = `UPDATE sessions SET ${fields.join(', ')} WHERE id = ?`;
+        this.db.prepare(sql).run(...values, sessionId);
+      }
+    });
+
+    tx();
   }
 
   // Message operations
