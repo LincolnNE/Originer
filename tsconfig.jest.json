@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "module": "commonjs",
+    "esModuleInterop": true,
+    "baseUrl": "."
+  },
+  "include": ["src/**/*", "backend/**/*", "tests/**/*"]
+}
