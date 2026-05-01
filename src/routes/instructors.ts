@@ -208,7 +208,13 @@ export async function registerInstructorRoutes(
         // Create a temporary session for preview
         const tempSessionId = `preview_${Date.now()}`;
         const tempLearnerId = `temp_learner_${Date.now()}`;
-        
+
+        // Foreign keys require a real learners row; preview IDs are not POST /learners.
+        await storageAdapter.ensureLearnerRowExists(
+          tempLearnerId,
+          'Preview (temporary)'
+        );
+
         // Create temporary session
         const tempSession = {
           id: tempSessionId,
