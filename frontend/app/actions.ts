@@ -2,36 +2,63 @@
 
 import { redirect } from 'next/navigation';
 
+function apiOrigin(): string {
+  const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? '';
+  return base;
+}
+
 export async function startSession() {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
-  const apiUrl = apiBaseUrl ? `${apiBaseUrl}/api/v1/sessions` : '/api/v1/sessions';
-  
+  const origin = apiOrigin();
+  const prefix = origin ? `${origin}` : '';
+
   try {
-    const response = await fetch(apiUrl, {
+    const learnerRes = await fetch(`${prefix}/api/v1/learners`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Learner', level: 'beginner' }),
+    });
+    const learnerJson = await learnerRes.json();
+    if (!learnerRes.ok || !learnerJson.success || !learnerJson.data?.learner_id) {
+      redirect('/');
+      return;
+    }
+
+    const instructorRes = await fetch(`${prefix}/api/v1/instructors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Instructor', tone: 'friendly' }),
+    });
+    const instructorJson = await instructorRes.json();
+    if (!instructorRes.ok || !instructorJson.success || !instructorJson.data?.instructor_id) {
+      redirect('/');
+      return;
+    }
+
+    const sessionRes = await fetch(`${prefix}/api/v1/sessions/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        instructorProfileId: 'default',
+        instructor_id: instructorJson.data.instructor_id,
+        learner_id: learnerJson.data.learner_id,
         subject: 'General',
         topic: 'Introduction',
-        learningObjective: 'Get started with learning',
+        learning_objective: 'Get started with learning',
       }),
     });
 
-    if (!response.ok) {
+    if (!sessionRes.ok) {
       redirect('/');
+      return;
     }
 
-    const result = await response.json();
-    
-    if (result.success && result.data?.session?.id) {
-      redirect(`/lessons/${result.data.session.id}/screen_001`);
+    const result = await sessionRes.json();
+
+    if (result.success && result.data?.session_id) {
+      redirect(`/lessons/${result.data.session_id}/screen_001`);
     } else {
       redirect('/');
     }
-  } catch (error) {
+  } catch {
     redirect('/');
   }
 }
