@@ -8,11 +8,18 @@ const DEFAULT_INSTRUCTOR_ID =
 const DEFAULT_LEARNER_ID =
   process.env.ORIGINER_DEFAULT_LEARNER_ID ?? 'default_learner';
 
+/** Server Actions run in Node; `fetch()` requires an absolute URL (relative URLs throw). */
+function getSessionsStartUrl(): string {
+  const raw = process.env.NEXT_PUBLIC_API_URL?.trim();
+  const base = (raw && raw.length > 0 ? raw : 'http://localhost:4094').replace(
+    /\/$/,
+    ''
+  );
+  return `${base}/api/v1/sessions/start`;
+}
+
 export async function startSession() {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
-  const apiUrl = apiBaseUrl
-    ? `${apiBaseUrl}/api/v1/sessions/start`
-    : '/api/v1/sessions/start';
+  const apiUrl = getSessionsStartUrl();
 
   try {
     const response = await fetch(apiUrl, {
