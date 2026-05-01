@@ -7,11 +7,21 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { StorageAdapter } from '../../backend/adapters/storage/types';
+import { DatabaseStorageAdapter } from '../../backend/adapters/storage/database';
 import { SessionOrchestrator } from '../../backend/core/SessionOrchestrator';
 
 interface StartSessionRequest {
   instructor_id: string;
   learner_id: string;
+  subject?: string;
+  topic?: string;
+  learning_objective?: string;
+}
+
+/** One-shot session bootstrap (single HTTP round-trip) for serverless + in-memory SQLite. */
+interface QuickStartSessionRequest {
+  instructor?: { name: string; tone?: string };
+  learner?: { name: string; level?: string };
   subject?: string;
   topic?: string;
   learning_objective?: string;
@@ -29,6 +39,76 @@ export async function registerSessionRoutes(
   storageAdapter: StorageAdapter,
   sessionOrchestrator: SessionOrchestrator
 ): Promise<void> {
+  const db = storageAdapter as DatabaseStorageAdapter;
+
+  /**
+   * POST /sessions/quick-start
+   * Create instructor, learner, and session in one request so serverless invocations
+   * always share the same storage (avoids split POSTs hitting different instances with :memory: DB).
+   */
+  server.post<{ Body: QuickStartSessionRequest }>(
+    '/api/v1/sessions/quick-start',
+    async (request: FastifyRequest<{ Body: QuickStartSessionRequest }>, reply: FastifyReply) => {
+      const body = request.body || {};
+      const instructorName = body.instructor?.name?.trim() || 'Instructor';
+      const instructorTone = body.instructor?.tone || 'friendly';
+      const learnerName = body.learner?.name?.trim() || 'Learner';
+      const learnerLevel = body.learner?.level || 'beginner';
+
+      try {
+        const instructorId = `inst_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const learnerId = `learner_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        await db.createInstructor({
+          id: instructorId,
+          name: instructorName,
+          tone: instructorTone,
+        });
+        await db.createLearner({
+          id: learnerId,
+          name: learnerName,
+          level: learnerLevel,
+        });
+
+        const session = {
+          id: sessionId,
+          instructorId,
+          learnerId,
+          instructorProfileId: instructorId,
+          subject: body.subject || 'General',
+          topic: body.topic || 'Introduction',
+          learningObjective: body.learning_objective || 'Learn and practice',
+          sessionState: 'active' as const,
+          messageIds: [] as string[],
+          startedAt: new Date(),
+          lastActivityAt: new Date(),
+          endedAt: null,
+        };
+
+        await storageAdapter.saveSession(session);
+
+        return reply.send({
+          success: true,
+          data: {
+            session_id: sessionId,
+            instructor_id: instructorId,
+            learner_id: learnerId,
+          },
+        });
+      } catch (error: any) {
+        request.log.error(error);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: 'SESSION_CREATION_ERROR',
+            message: error.message || 'Failed to create session',
+          },
+        });
+      }
+    }
+  );
+
   /**
    * POST /sessions/start
    * Start a new teaching session
