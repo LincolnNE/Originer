@@ -184,10 +184,13 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveSession(session: Session): Promise<void> {
-    // One transaction: INSERT OR REPLACE on sessions removes the old row and (with
-    // foreign_keys=ON) CASCADE-deletes session_messages; re-insert junction rows
-    // in the same unit of work so we never persist a session without its index.
+    // One transaction: order matters when foreign_keys=ON. INSERT OR REPLACE on
+    // sessions deletes the prior row first; messages.session_id FK would delete
+    // message bodies before we rebuild session_messages, corrupting history.
+    // Clear junction rows, upsert the session, then re-link message IDs.
     const persist = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(session.id);
+
       const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
@@ -209,9 +212,6 @@ export class DatabaseStorageAdapter implements StorageAdapter {
         session.lastActivityAt.toISOString(),
         session.endedAt?.toISOString() || null
       );
-
-      const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
-      deleteStmt.run(session.id);
 
       const insertStmt = this.db.prepare(
         'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
