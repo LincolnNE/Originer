@@ -21,6 +21,25 @@ interface SendMessageRequest {
   message: string;
 }
 
+/** Matches frontend `CreateSessionRequest` / landing server action */
+interface CreateSessionRequestBody {
+  learnerId?: string;
+  instructorProfileId?: string;
+  subject?: string;
+  topic?: string;
+  learningObjective?: string;
+}
+
+const DEFAULT_INSTRUCTOR_ID = 'inst_default';
+const DEFAULT_LEARNER_ID = 'learner_default';
+
+function resolveInstructorId(instructorProfileId?: string): string {
+  if (!instructorProfileId || instructorProfileId === 'default') {
+    return DEFAULT_INSTRUCTOR_ID;
+  }
+  return instructorProfileId;
+}
+
 /**
  * Register session routes
  */
@@ -29,6 +48,124 @@ export async function registerSessionRoutes(
   storageAdapter: StorageAdapter,
   sessionOrchestrator: SessionOrchestrator
 ): Promise<void> {
+  /**
+   * POST /api/v1/sessions
+   * Create session (contract used by Next.js client and server actions)
+   */
+  server.post<{ Body: CreateSessionRequestBody }>(
+    '/api/v1/sessions',
+    async (request: FastifyRequest<{ Body: CreateSessionRequestBody }>, reply: FastifyReply) => {
+      const body = request.body || {};
+      const {
+        learnerId,
+        instructorProfileId,
+        subject,
+        topic,
+        learningObjective,
+      } = body;
+
+      const instructorId = resolveInstructorId(instructorProfileId);
+      const resolvedLearnerId = learnerId || DEFAULT_LEARNER_ID;
+
+      try {
+        const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        const session = {
+          id: sessionId,
+          instructorId,
+          learnerId: resolvedLearnerId,
+          instructorProfileId: instructorId,
+          subject: subject || 'General',
+          topic: topic || 'Introduction',
+          learningObjective: learningObjective || 'Learn and practice',
+          sessionState: 'active' as const,
+          messageIds: [],
+          startedAt: new Date(),
+          lastActivityAt: new Date(),
+          endedAt: null,
+        };
+
+        await storageAdapter.saveSession(session);
+
+        return reply.send({
+          success: true,
+          data: {
+            session: {
+              id: session.id,
+              learnerId: session.learnerId,
+              instructorProfileId: session.instructorProfileId,
+              subject: session.subject,
+              topic: session.topic,
+              learningObjective: session.learningObjective,
+              sessionState: session.sessionState,
+              startedAt: session.startedAt.toISOString(),
+            },
+          },
+        });
+      } catch (error: any) {
+        request.log.error(error);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: 'SESSION_CREATION_ERROR',
+            message: error.message || 'Failed to create session',
+          },
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /api/v1/sessions/:id
+   * Load session by id (used by client session hooks)
+   */
+  server.get<{ Params: { id: string } }>(
+    '/api/v1/sessions/:id',
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      const { id } = request.params;
+
+      try {
+        const session = await storageAdapter.loadSession(id);
+        if (!session) {
+          return reply.code(404).send({
+            success: false,
+            error: {
+              code: 'SESSION_NOT_FOUND',
+              message: `Session not found: ${id}`,
+            },
+          });
+        }
+
+        return reply.send({
+          success: true,
+          data: {
+            session: {
+              id: session.id,
+              learnerId: session.learnerId,
+              instructorProfileId: session.instructorProfileId,
+              subject: session.subject,
+              topic: session.topic,
+              learningObjective: session.learningObjective,
+              sessionState: session.sessionState,
+              startedAt: session.startedAt.toISOString(),
+              lastActivityAt: session.lastActivityAt.toISOString(),
+              endedAt: session.endedAt?.toISOString() ?? null,
+            },
+          },
+        });
+      } catch (error: any) {
+        request.log.error(error);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: 'SESSION_LOAD_ERROR',
+            message: error.message || 'Failed to load session',
+          },
+        });
+      }
+    }
+  );
+
   /**
    * POST /sessions/start
    * Start a new teaching session
