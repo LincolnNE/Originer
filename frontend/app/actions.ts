@@ -1,31 +1,30 @@
 'use server';
 
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+
+import { resolveBackendOriginForServerAction } from '@/lib/server-api-origin';
 
 /**
  * Base URL for API calls from Server Actions.
  *
  * `next.config.js` injects NEXT_PUBLIC_API_URL with a localhost default for local dev. On Vercel
  * that value is baked into the build when the project env var is missing, so we must not call
- * localhost from serverless — use this deployment's origin (VERCEL_URL) or same-origin `/api/v1`.
+ * localhost from serverless — use VERCEL_URL or the incoming request Host (Node fetch requires an
+ * absolute URL; relative `/api/v1` throws).
  */
 function apiV1Base(): string {
-  const raw = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? '';
-  const isLocalDevDefault =
-    raw === '' || raw === 'http://localhost:4094' || raw === 'http://127.0.0.1:4094';
-
-  if (process.env.VERCEL && isLocalDevDefault) {
-    const vercelHost = process.env.VERCEL_URL;
-    if (vercelHost) {
-      return `https://${vercelHost}/api/v1`;
-    }
-    return '/api/v1';
-  }
-
-  if (raw) {
-    return `${raw}/api/v1`;
-  }
-  return '/api/v1';
+  const h = headers();
+  const origin = resolveBackendOriginForServerAction({
+    nextPublicApiUrl: process.env.NEXT_PUBLIC_API_URL,
+    vercel: process.env.VERCEL,
+    vercelUrl: process.env.VERCEL_URL,
+    nodeEnv: process.env.NODE_ENV,
+    forwardedProto: h.get('x-forwarded-proto'),
+    forwardedHost: h.get('x-forwarded-host'),
+    host: h.get('host'),
+  });
+  return `${origin.replace(/\/$/, '')}/api/v1`;
 }
 
 export async function startSession() {
