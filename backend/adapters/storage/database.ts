@@ -431,6 +431,14 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     stmt.run(data.id, data.name, data.bio || null, data.tone || 'friendly');
   }
 
+  /** Ensures an instructor row exists (sessions FK); idempotent for MVP */
+  ensureInstructor(data: { id: string; name?: string; bio?: string; tone?: string }): void {
+    const stmt = this.db.prepare(`
+      INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, ?, ?)
+    `);
+    stmt.run(data.id, data.name || 'Instructor', data.bio ?? null, data.tone || 'friendly');
+  }
+
   async createLearner(data: {
     id: string;
     name: string;
@@ -440,6 +448,14 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       INSERT INTO learners (id, name, level) VALUES (?, ?, ?)
     `);
     stmt.run(data.id, data.name, data.level || 'beginner');
+  }
+
+  /** Ensures a learner row exists (sessions FK); idempotent for MVP anonymous flows */
+  ensureLearner(data: { id: string; name?: string; level?: string }): void {
+    const stmt = this.db.prepare(`
+      INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)
+    `);
+    stmt.run(data.id, data.name || 'Learner', data.level || 'beginner');
   }
 
   async saveInstructorMaterial(data: {

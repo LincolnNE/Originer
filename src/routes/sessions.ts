@@ -8,6 +8,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { StorageAdapter } from '../../backend/adapters/storage/types';
 import { SessionOrchestrator } from '../../backend/core/SessionOrchestrator';
+import { DatabaseStorageAdapter } from '../../backend/adapters/storage/database';
 
 interface StartSessionRequest {
   instructor_id: string;
@@ -15,6 +16,15 @@ interface StartSessionRequest {
   subject?: string;
   topic?: string;
   learning_objective?: string;
+}
+
+/** Frontend / API doc shape (camelCase) */
+interface CreateSessionRestBody {
+  learnerId?: string;
+  instructorProfileId: string;
+  subject: string;
+  topic: string;
+  learningObjective: string;
 }
 
 interface SendMessageRequest {
@@ -29,6 +39,139 @@ export async function registerSessionRoutes(
   storageAdapter: StorageAdapter,
   sessionOrchestrator: SessionOrchestrator
 ): Promise<void> {
+  /**
+   * POST /api/v1/sessions
+   * Create session (REST shape expected by frontend)
+   */
+  server.post<{ Body: CreateSessionRestBody }>(
+    '/api/v1/sessions',
+    async (request: FastifyRequest<{ Body: CreateSessionRestBody }>, reply: FastifyReply) => {
+      const body = request.body || ({} as CreateSessionRestBody);
+      const {
+        instructorProfileId,
+        subject,
+        topic,
+        learningObjective,
+        learnerId: bodyLearnerId,
+      } = body;
+
+      if (!instructorProfileId || !subject || !topic || !learningObjective) {
+        return reply.code(400).send({
+          success: false,
+          error: {
+            code: 'INVALID_REQUEST',
+            message:
+              'Missing required fields: instructorProfileId, subject, topic, learningObjective',
+          },
+        });
+      }
+
+      try {
+        const dbAdapter = storageAdapter as DatabaseStorageAdapter;
+        dbAdapter.ensureInstructor({ id: instructorProfileId });
+
+        const learnerId =
+          bodyLearnerId ||
+          `anon_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        dbAdapter.ensureLearner({ id: learnerId });
+
+        const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const now = new Date();
+        const session = {
+          id: sessionId,
+          instructorId: instructorProfileId,
+          learnerId,
+          instructorProfileId,
+          subject,
+          topic,
+          learningObjective,
+          sessionState: 'active' as const,
+          messageIds: [],
+          startedAt: now,
+          lastActivityAt: now,
+          endedAt: null,
+        };
+
+        await storageAdapter.saveSession(session);
+
+        return reply.send({
+          success: true,
+          data: {
+            session: {
+              id: session.id,
+              learnerId: session.learnerId,
+              instructorProfileId: session.instructorProfileId,
+              subject: session.subject,
+              topic: session.topic,
+              learningObjective: session.learningObjective,
+              sessionState: 'active' as const,
+              startedAt: session.startedAt.toISOString(),
+            },
+          },
+        });
+      } catch (error: any) {
+        request.log.error(error);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: 'SESSION_CREATION_ERROR',
+            message: error.message || 'Failed to create session',
+          },
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /api/v1/sessions/:id
+   */
+  server.get<{ Params: { id: string } }>(
+    '/api/v1/sessions/:id',
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      const { id } = request.params;
+
+      try {
+        const session = await storageAdapter.loadSession(id);
+        if (!session) {
+          return reply.code(404).send({
+            success: false,
+            error: {
+              code: 'SESSION_NOT_FOUND',
+              message: `Session not found: ${id}`,
+            },
+          });
+        }
+
+        return reply.send({
+          success: true,
+          data: {
+            session: {
+              id: session.id,
+              learnerId: session.learnerId,
+              instructorProfileId: session.instructorProfileId,
+              subject: session.subject,
+              topic: session.topic,
+              learningObjective: session.learningObjective,
+              sessionState: session.sessionState,
+              startedAt: session.startedAt.toISOString(),
+              lastActivityAt: session.lastActivityAt.toISOString(),
+              endedAt: session.endedAt ? session.endedAt.toISOString() : null,
+            },
+          },
+        });
+      } catch (error: any) {
+        request.log.error(error);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: 'SESSION_FETCH_ERROR',
+            message: error.message || 'Failed to load session',
+          },
+        });
+      }
+    }
+  );
+
   /**
    * POST /sessions/start
    * Start a new teaching session
@@ -49,8 +192,12 @@ export async function registerSessionRoutes(
       }
 
       try {
+        const dbAdapter = storageAdapter as DatabaseStorageAdapter;
+        dbAdapter.ensureInstructor({ id: instructor_id });
+        dbAdapter.ensureLearner({ id: learner_id });
+
         const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
+
         const session = {
           id: sessionId,
           instructorId: instructor_id,

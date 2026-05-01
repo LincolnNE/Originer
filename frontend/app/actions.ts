@@ -3,8 +3,8 @@
 import { redirect } from 'next/navigation';
 
 export async function startSession() {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
-  const apiUrl = apiBaseUrl ? `${apiBaseUrl}/api/v1/sessions` : '/api/v1/sessions';
+  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4094';
+  const apiUrl = `${apiBaseUrl.replace(/\/$/, '')}/api/v1/sessions`;
   
   try {
     const response = await fetch(apiUrl, {
