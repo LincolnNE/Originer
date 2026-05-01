@@ -16,34 +16,14 @@ export async function startSession() {
   const apiBase = apiV1Base();
 
   try {
-    const learnerRes = await fetch(`${apiBase}/learners`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Learner', level: 'beginner' }),
-    });
-    const learnerJson = await learnerRes.json();
-    if (!learnerRes.ok || !learnerJson.success || !learnerJson.data?.learner_id) {
-      redirect('/');
-      return;
-    }
-
-    const instructorRes = await fetch(`${apiBase}/instructors`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Instructor', tone: 'friendly' }),
-    });
-    const instructorJson = await instructorRes.json();
-    if (!instructorRes.ok || !instructorJson.success || !instructorJson.data?.instructor_id) {
-      redirect('/');
-      return;
-    }
-
-    const sessionRes = await fetch(`${apiBase}/sessions/start`, {
+    // Single round-trip: instructor + learner + session on one serverless instance
+    // (three separate POSTs can hit different instances with isolated :memory: SQLite).
+    const sessionRes = await fetch(`${apiBase}/sessions/quick-start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        instructor_id: instructorJson.data.instructor_id,
-        learner_id: learnerJson.data.learner_id,
+        instructor: { name: 'Instructor', tone: 'friendly' },
+        learner: { name: 'Learner', level: 'beginner' },
         subject: 'General',
         topic: 'Introduction',
         learning_objective: 'Get started with learning',

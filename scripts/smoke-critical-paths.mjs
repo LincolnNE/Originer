@@ -70,6 +70,36 @@ async function testLoadMessagesOrder() {
   rmSync(dbPath, { force: true });
 }
 
+async function testSessionsQuickStartSingleRequest() {
+  const { createServer } = await import(join(root, 'dist/src/server.js'));
+  const server = await createServer();
+  const res = await server.inject({
+    method: 'POST',
+    url: '/api/v1/sessions/quick-start',
+    headers: { 'content-type': 'application/json' },
+    payload: {
+      instructor: { name: 'Coach', tone: 'friendly' },
+      learner: { name: 'Student', level: 'beginner' },
+      subject: 'General',
+      topic: 'Intro',
+      learning_objective: 'Practice',
+    },
+  });
+  if (res.statusCode !== 200) {
+    throw new Error(`quick-start expected 200, got ${res.statusCode}: ${res.payload}`);
+  }
+  const json = JSON.parse(res.payload);
+  if (
+    !json.success ||
+    !json.data?.session_id ||
+    !json.data?.instructor_id ||
+    !json.data?.learner_id
+  ) {
+    throw new Error(`quick-start missing ids: ${res.payload}`);
+  }
+  await server.close();
+}
+
 async function testOrchestratorFallbackAfterRetryStillInvalid() {
   const { DatabaseStorageAdapter } = await import(
     join(root, 'dist/backend/adapters/storage/database.js')
@@ -135,6 +165,7 @@ async function testOrchestratorFallbackAfterRetryStillInvalid() {
 async function main() {
   process.chdir(root);
   await testLoadMessagesOrder();
+  await testSessionsQuickStartSingleRequest();
   await testOrchestratorFallbackAfterRetryStillInvalid();
   console.log('smoke-critical-paths: ok');
 }
