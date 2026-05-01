@@ -90,12 +90,10 @@ export class SessionOrchestrator {
     // TODO: Save learner message
     await this.storageAdapter.saveMessage(learnerMessage);
 
-    // TODO: Update session with new message ID
+    // Append transcript order atomically (avoids lost message IDs if two requests run concurrently)
+    await this.storageAdapter.appendSessionMessage(sessionId, learnerMessage.id);
+
     const updatedMessageIds = [...session.messageIds, learnerMessage.id];
-    await this.storageAdapter.updateSession(sessionId, {
-      messageIds: updatedMessageIds,
-      lastActivityAt: new Date(),
-    });
 
     // Step 3: Assemble prompt
     // TODO: Assemble full prompt using PromptAssembler
@@ -182,12 +180,9 @@ export class SessionOrchestrator {
     // TODO: Save instructor message
     await this.storageAdapter.saveMessage(instructorMessage);
 
-    // TODO: Update session with instructor message ID
+    await this.storageAdapter.appendSessionMessage(sessionId, instructorMessage.id);
+
     const finalMessageIds = [...updatedMessageIds, instructorMessage.id];
-    await this.storageAdapter.updateSession(sessionId, {
-      messageIds: finalMessageIds,
-      lastActivityAt: new Date(),
-    });
 
     // Step 7: Update learner memory
     // TODO: Analyze interaction for learning insights
