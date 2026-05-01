@@ -4,34 +4,43 @@ import { redirect } from 'next/navigation';
 
 export async function startSession() {
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
-  const apiUrl = apiBaseUrl ? `${apiBaseUrl}/api/v1/sessions` : '/api/v1/sessions';
-  
+  const path = '/api/v1/sessions/start';
+  const apiUrl = apiBaseUrl ? `${apiBaseUrl.replace(/\/$/, '')}${path}` : path;
+
+  let response: Response;
   try {
-    const response = await fetch(apiUrl, {
+    response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        instructorProfileId: 'default',
+        instructor_id: 'default',
+        learner_id: 'default',
         subject: 'General',
         topic: 'Introduction',
-        learningObjective: 'Get started with learning',
+        learning_objective: 'Get started with learning',
       }),
     });
-
-    if (!response.ok) {
-      redirect('/');
-    }
-
-    const result = await response.json();
-    
-    if (result.success && result.data?.session?.id) {
-      redirect(`/lessons/${result.data.session.id}/screen_001`);
-    } else {
-      redirect('/');
-    }
-  } catch (error) {
+  } catch {
     redirect('/');
   }
+
+  if (!response.ok) {
+    redirect('/');
+  }
+
+  let result: { success?: boolean; data?: { session_id?: string } };
+  try {
+    result = await response.json();
+  } catch {
+    redirect('/');
+  }
+
+  const sessionId = result.data?.session_id;
+  if (result.success && typeof sessionId === 'string' && sessionId.length > 0) {
+    redirect(`/lessons/${sessionId}/screen_001`);
+  }
+
+  redirect('/');
 }
