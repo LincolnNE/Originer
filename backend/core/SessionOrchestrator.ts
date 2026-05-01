@@ -161,8 +161,8 @@ export class SessionOrchestrator {
         }
       }
 
-      // TODO: If still invalid after retry, use safe fallback
-      if (!validationResult.isValid && validationResult.action === 'REJECT') {
+      // Still invalid after optional retry — never return an unvalidated model output
+      if (!validationResult.isValid) {
         rawResponse = this.generateSafeFallbackResponse(learnerMessageContent);
       }
     }
