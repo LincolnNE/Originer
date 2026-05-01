@@ -286,9 +286,14 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (messageIds.length === 0) return [];
 
     const placeholders = messageIds.map(() => '?').join(',');
+    // Preserve session / junction order — created_at can tie or invert when messages
+    // are written in the same millisecond (e.g. learner + instructor in one turn).
+    const orderCase = messageIds.map((_, i) => `WHEN ? THEN ${i}`).join(' ');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
-      .all(...messageIds) as any[];
+      .prepare(
+        `SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY CASE id ${orderCase} ELSE 999 END`
+      )
+      .all(...messageIds, ...messageIds) as any[];
 
     return rows.map(row => ({
       id: row.id,
