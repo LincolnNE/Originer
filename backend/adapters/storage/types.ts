@@ -17,6 +17,8 @@ export interface StorageAdapter {
   loadMessage(messageId: string): Promise<Message | null>;
   loadMessages(messageIds: string[]): Promise<Message[]>;
   saveMessage(message: Message): Promise<void>;
+  /** Atomically persist a message and append its id to the session ordering (SQLite: single transaction). */
+  appendSessionMessage(sessionId: string, message: Message, messageIds: string[]): Promise<void>;
 
   // Instructor profile operations
   loadInstructorProfile(profileId: string): Promise<InstructorProfile | null>;

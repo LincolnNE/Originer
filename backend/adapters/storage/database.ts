@@ -320,6 +320,46 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     );
   }
 
+  async appendSessionMessage(
+    sessionId: string,
+    message: Message,
+    messageIds: string[]
+  ): Promise<void> {
+    if (message.sessionId !== sessionId) {
+      throw new Error('appendSessionMessage: message.sessionId must match sessionId');
+    }
+
+    const insertMessage = this.db.prepare(`
+      INSERT INTO messages (
+        id, session_id, sender, role, content, message_type, teaching_metadata, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const deleteJunction = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
+    const insertJunction = this.db.prepare(
+      'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
+    );
+
+    const tx = this.db.transaction(() => {
+      insertMessage.run(
+        message.id,
+        message.sessionId,
+        message.role === 'instructor' ? 'ai' : 'learner',
+        message.role,
+        message.content,
+        message.messageType,
+        message.teachingMetadata ? JSON.stringify(message.teachingMetadata) : null,
+        message.timestamp.toISOString()
+      );
+
+      deleteJunction.run(sessionId);
+      messageIds.forEach((messageId, idx) => {
+        insertJunction.run(sessionId, messageId, idx);
+      });
+    });
+
+    tx();
+  }
+
   // Instructor profile operations
   async loadInstructorProfile(profileId: string): Promise<InstructorProfile | null> {
     // Try to load from instructor_profiles table first
