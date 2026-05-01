@@ -153,6 +153,27 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     `);
   }
 
+  async ensureInstructor(data: {
+    id: string;
+    name: string;
+    bio?: string;
+    tone?: string;
+  }): Promise<void> {
+    const stmt = this.db.prepare(`
+      INSERT OR IGNORE INTO instructors (id, name, bio, tone)
+      VALUES (?, ?, ?, ?)
+    `);
+    stmt.run(data.id, data.name, data.bio ?? null, data.tone ?? 'friendly');
+  }
+
+  async ensureLearner(data: { id: string; name: string; level?: string }): Promise<void> {
+    const stmt = this.db.prepare(`
+      INSERT OR IGNORE INTO learners (id, name, level)
+      VALUES (?, ?, ?)
+    `);
+    stmt.run(data.id, data.name, data.level ?? 'beginner');
+  }
+
   // Session operations
   async loadSession(sessionId: string): Promise<Session | null> {
     const sessionRow = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as any;

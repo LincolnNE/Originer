@@ -8,6 +8,13 @@ import {
 } from '../../core/types';
 
 export interface StorageAdapter {
+  /**
+   * Ensure instructor and learner rows exist so session FKs and orchestrator lookups succeed.
+   * Safe to call repeatedly (idempotent).
+   */
+  ensureInstructor(data: { id: string; name: string; bio?: string; tone?: string }): Promise<void>;
+  ensureLearner(data: { id: string; name: string; level?: string }): Promise<void>;
+
   // Session operations
   loadSession(sessionId: string): Promise<Session | null>;
   saveSession(session: Session): Promise<void>;
