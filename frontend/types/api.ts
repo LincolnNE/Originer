@@ -33,17 +33,14 @@ export interface CreateSessionRequest {
   learningObjective: string;
 }
 
+/** Matches POST /api/v1/sessions/start success payload */
 export interface CreateSessionResponse {
-  session: {
-    id: string;
-    learnerId: string;
-    instructorProfileId: string;
-    subject: string;
-    topic: string;
-    learningObjective: string;
-    sessionState: 'active';
-    startedAt: string;
-  };
+  session_id: string;
+  instructor_id: string;
+  learner_id: string;
+  subject: string;
+  topic: string;
+  learning_objective: string;
 }
 
 export interface GetSessionResponse {

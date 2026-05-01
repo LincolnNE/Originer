@@ -54,8 +54,20 @@ export function useSession() {
         topic: params.topic,
         learningObjective: params.learningObjective,
       });
-      setSession(response.session);
-      return response.session.id;
+      const session = {
+        id: response.session_id,
+        learnerId: response.learner_id,
+        instructorProfileId: response.instructor_id,
+        subject: response.subject,
+        topic: response.topic,
+        learningObjective: response.learning_objective,
+        sessionState: 'active' as const,
+        startedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        endedAt: null as string | null,
+      };
+      setSession(session);
+      return response.session_id;
     } catch (err: any) {
       setError(err.message || 'Failed to create session');
       throw err;

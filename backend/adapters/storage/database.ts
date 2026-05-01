@@ -29,6 +29,7 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (config.type === 'sqlite') {
       const dbPath = config.connectionString || ':memory:';
       this.db = new Database(dbPath);
+      this.db.pragma('foreign_keys = ON');
       this.initializeSchema();
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
@@ -178,6 +179,32 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       lastActivityAt: new Date(sessionRow.last_activity_at),
       endedAt: sessionRow.ended_at ? new Date(sessionRow.ended_at) : null,
     };
+  }
+
+  /**
+   * Ensure instructor and learner rows exist so session INSERT satisfies FK constraints.
+   * Used when starting sessions with ad-hoc or first-time IDs (e.g. landing page, demos).
+   */
+  ensureInstructorAndLearnerExist(instructorId: string, learnerId: string): void {
+    const hasInstructor = this.db
+      .prepare('SELECT 1 FROM instructors WHERE id = ?')
+      .get(instructorId);
+    if (!hasInstructor) {
+      this.createInstructor({
+        id: instructorId,
+        name: `Instructor (${instructorId})`,
+        tone: 'friendly',
+      });
+    }
+
+    const hasLearner = this.db.prepare('SELECT 1 FROM learners WHERE id = ?').get(learnerId);
+    if (!hasLearner) {
+      this.createLearner({
+        id: learnerId,
+        name: 'Learner',
+        level: 'beginner',
+      });
+    }
   }
 
   async saveSession(session: Session): Promise<void> {
