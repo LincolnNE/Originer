@@ -151,6 +151,23 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
       CREATE INDEX IF NOT EXISTS idx_session_messages_order ON session_messages(session_id, sequence_order);
     `);
+
+    this.ensureDefaultActors();
+  }
+
+  /**
+   * MVP defaults so anonymous session flows work without prior POST /instructors or /learners.
+   * Uses INSERT OR IGNORE so repeated initialization is safe.
+   */
+  private ensureDefaultActors(): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, ?, ?)`
+      )
+      .run('inst_default', 'Default Instructor', null, 'friendly');
+    this.db
+      .prepare(`INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)`)
+      .run('learner_default', 'Anonymous Learner', 'beginner');
   }
 
   // Session operations
