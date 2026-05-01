@@ -158,11 +158,17 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     const sessionRow = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as any;
     if (!sessionRow) return null;
 
-    // Load message IDs
+    // Message order must come from the messages table (authoritative). The session_messages
+    // junction is rewritten on each updateSession and concurrent requests can race: two
+    // handlers read the same messageIds, each appends one id, and the second save deletes
+    // the first handler's row — silent loss of message pointers. Reading from messages
+    // by session_id preserves full history regardless of junction races.
     const messageRows = this.db
-      .prepare('SELECT message_id FROM session_messages WHERE session_id = ? ORDER BY sequence_order')
-      .all(sessionId) as Array<{ message_id: string }>;
-    const messageIds = messageRows.map(r => r.message_id);
+      .prepare(
+        'SELECT id FROM messages WHERE session_id = ? ORDER BY created_at ASC, id ASC'
+      )
+      .all(sessionId) as Array<{ id: string }>;
+    const messageIds = messageRows.map(r => r.id);
 
     return {
       id: sessionRow.id,
@@ -278,10 +284,13 @@ export class DatabaseStorageAdapter implements StorageAdapter {
 
     const placeholders = messageIds.map(() => '?').join(',');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
 
-    return rows.map(row => ({
+    const byId = new Map(rows.map((row: any) => [row.id, row]));
+    const ordered = messageIds.map(id => byId.get(id)).filter((row): row is any => row != null);
+
+    return ordered.map(row => ({
       id: row.id,
       sessionId: row.session_id,
       role: row.role as MessageRole,
