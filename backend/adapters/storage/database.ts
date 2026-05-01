@@ -219,6 +219,27 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     insertMany(session.messageIds.map((id, idx) => ({ id, order: idx })));
   }
 
+  async appendSessionMessage(sessionId: string, messageId: string): Promise<void> {
+    const nowIso = new Date().toISOString();
+    const insertMessage = this.db.prepare(
+      'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
+    );
+    const bumpActivity = this.db.prepare(
+      'UPDATE sessions SET last_activity_at = ? WHERE id = ?'
+    );
+
+    this.db.transaction(() => {
+      const row = this.db
+        .prepare(
+          'SELECT COALESCE(MAX(sequence_order), -1) AS max_order FROM session_messages WHERE session_id = ?'
+        )
+        .get(sessionId) as { max_order: number };
+      const nextOrder = row.max_order + 1;
+      insertMessage.run(sessionId, messageId, nextOrder);
+      bumpActivity.run(nowIso, sessionId);
+    })();
+  }
+
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
     const fields: string[] = [];
     const values: any[] = [];

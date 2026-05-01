@@ -12,6 +12,11 @@ export interface StorageAdapter {
   loadSession(sessionId: string): Promise<Session | null>;
   saveSession(session: Session): Promise<void>;
   updateSession(sessionId: string, updates: Partial<Session>): Promise<void>;
+  /**
+   * Atomically append a message to the session transcript order and bump last_activity_at.
+   * Use this instead of read-modify-write on messageIds to avoid lost updates under concurrency.
+   */
+  appendSessionMessage(sessionId: string, messageId: string): Promise<void>;
 
   // Message operations
   loadMessage(messageId: string): Promise<Message | null>;
