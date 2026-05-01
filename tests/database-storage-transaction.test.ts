@@ -100,4 +100,34 @@ describe('DatabaseStorageAdapter transactions', () => {
     const loaded = await adapter.loadSession(session.id);
     expect(loaded?.messageIds).toEqual([]);
   });
+
+  it('loadMessages returns rows in session messageIds order, not created_at', async () => {
+    const session = mkSession();
+    await adapter.saveSession(session);
+
+    const t = new Date('2024-01-01T12:00:00.000Z');
+    await adapter.saveMessage({
+      id: 'msg_first',
+      sessionId: session.id,
+      role: 'learner',
+      content: 'first',
+      messageType: 'question',
+      timestamp: t,
+    });
+    await adapter.saveMessage({
+      id: 'msg_second',
+      sessionId: session.id,
+      role: 'instructor',
+      content: 'second',
+      messageType: 'guidance',
+      timestamp: new Date(t.getTime() - 60_000),
+    });
+
+    await adapter.updateSession(session.id, {
+      messageIds: ['msg_second', 'msg_first'],
+    });
+
+    const messages = await adapter.loadMessages(['msg_second', 'msg_first']);
+    expect(messages.map(m => m.id)).toEqual(['msg_second', 'msg_first']);
+  });
 });
