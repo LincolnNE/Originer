@@ -81,6 +81,22 @@ export async function registerSessionRoutes(
     }
   }
 
+  /** Satisfy SQLite FK on sessions.instructor_id when clients omit instructor setup. */
+  async function ensureInstructorRow(instructorId: string): Promise<void> {
+    const db = storageAdapter as any;
+    if (typeof db.createInstructor !== 'function') return;
+    try {
+      await db.createInstructor({
+        id: instructorId,
+        name: 'Instructor',
+        bio: null,
+        tone: 'friendly',
+      });
+    } catch {
+      // already exists
+    }
+  }
+
   /**
    * POST /api/v1/sessions
    * Create session (shape expected by frontend: data.session.id)
@@ -102,6 +118,7 @@ export async function registerSessionRoutes(
       try {
         await ensureDefaultInstructorAndLearner();
         await ensureLearnerRow(resolvedLearnerId);
+        await ensureInstructorRow(instructorId);
 
         const existingInstructor = await storageAdapter.loadInstructorProfile(instructorId);
         if (!existingInstructor && instructorId !== DEFAULT_INSTRUCTOR_ID) {
@@ -235,6 +252,7 @@ export async function registerSessionRoutes(
       }
 
       try {
+        await ensureInstructorRow(instructor_id);
         await ensureLearnerRow(learner_id);
 
         const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
