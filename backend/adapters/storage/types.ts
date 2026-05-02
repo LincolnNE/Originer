@@ -17,6 +17,7 @@ export interface StorageAdapter {
   loadMessage(messageId: string): Promise<Message | null>;
   loadMessages(messageIds: string[]): Promise<Message[]>;
   saveMessage(message: Message): Promise<void>;
+  deleteMessage(messageId: string): Promise<void>;
 
   // Instructor profile operations
   loadInstructorProfile(profileId: string): Promise<InstructorProfile | null>;
