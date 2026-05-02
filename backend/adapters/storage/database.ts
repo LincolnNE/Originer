@@ -277,9 +277,14 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (messageIds.length === 0) return [];
 
     const placeholders = messageIds.map(() => '?').join(',');
+    // Order must match session message sequence (session_messages / messageIds), not
+    // created_at: same-ms inserts or non-chronological IDs would corrupt prompt history.
+    const orderCase = messageIds.map((_, idx) => `WHEN ? THEN ${idx}`).join(' ');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
-      .all(...messageIds) as any[];
+      .prepare(
+        `SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY CASE id ${orderCase} END`
+      )
+      .all(...messageIds, ...messageIds) as any[];
 
     return rows.map(row => ({
       id: row.id,
