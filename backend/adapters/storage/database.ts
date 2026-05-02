@@ -282,17 +282,24 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       .all(...messageIds) as any[];
 
     const byId = new Map(rows.map(row => [row.id as string, row]));
-    const ordered = messageIds.map(id => byId.get(id)).filter(Boolean) as any[];
 
-    return ordered.map(row => ({
-      id: row.id,
-      sessionId: row.session_id,
-      role: row.role as MessageRole,
-      content: row.content,
-      messageType: (row.message_type || 'question') as MessageType,
-      teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
-      timestamp: new Date(row.created_at),
-    }));
+    return messageIds.map((id) => {
+      const row = byId.get(id);
+      if (!row) {
+        throw new Error(
+          `loadMessages: missing row for message id ${id} (session references ${messageIds.length} ids, query returned ${rows.length} rows)`
+        );
+      }
+      return {
+        id: row.id,
+        sessionId: row.session_id,
+        role: row.role as MessageRole,
+        content: row.content,
+        messageType: (row.message_type || 'question') as MessageType,
+        teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
+        timestamp: new Date(row.created_at),
+      };
+    });
   }
 
   async saveMessage(message: Message): Promise<void> {
