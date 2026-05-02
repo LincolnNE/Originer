@@ -277,11 +277,18 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (messageIds.length === 0) return [];
 
     const placeholders = messageIds.map(() => '?').join(',');
+    // Fetch by id set only — ORDER BY created_at does NOT match session order (same-second
+    // inserts, clock skew, or batch writes). SQL IN (...) order is undefined; we reorder below.
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
 
-    return rows.map(row => ({
+    const rowById = new Map<string, any>();
+    for (const row of rows) {
+      rowById.set(row.id, row);
+    }
+
+    const toMessage = (row: any): Message => ({
       id: row.id,
       sessionId: row.session_id,
       role: row.role as MessageRole,
@@ -289,7 +296,16 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       messageType: (row.message_type || 'question') as MessageType,
       teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
       timestamp: new Date(row.created_at),
-    }));
+    });
+
+    const ordered: Message[] = [];
+    for (const id of messageIds) {
+      const row = rowById.get(id);
+      if (row) {
+        ordered.push(toMessage(row));
+      }
+    }
+    return ordered;
   }
 
   async saveMessage(message: Message): Promise<void> {
