@@ -332,6 +332,66 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     );
   }
 
+  async saveMessagesAndSetMessageIds(
+    sessionId: string,
+    messages: Message[],
+    orderedMessageIds: string[],
+    sessionUpdates?: Partial<Pick<Session, 'sessionState' | 'lastActivityAt' | 'endedAt'>>
+  ): Promise<void> {
+    const insertMessageStmt = this.db.prepare(`
+      INSERT INTO messages (
+        id, session_id, sender, role, content, message_type, teaching_metadata, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const deleteJunctionStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
+    const insertJunctionStmt = this.db.prepare(
+      'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
+    );
+
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    if (sessionUpdates?.sessionState !== undefined) {
+      fields.push('session_state = ?');
+      values.push(sessionUpdates.sessionState);
+    }
+    if (sessionUpdates?.lastActivityAt !== undefined) {
+      fields.push('last_activity_at = ?');
+      values.push(sessionUpdates.lastActivityAt.toISOString());
+    }
+    if (sessionUpdates?.endedAt !== undefined) {
+      fields.push('ended_at = ?');
+      values.push(sessionUpdates.endedAt?.toISOString() || null);
+    }
+    const hasSessionFieldUpdate = fields.length > 0;
+
+    const persist = this.db.transaction(() => {
+      for (const message of messages) {
+        insertMessageStmt.run(
+          message.id,
+          message.sessionId,
+          message.role === 'instructor' ? 'ai' : 'learner',
+          message.role,
+          message.content,
+          message.messageType,
+          message.teachingMetadata ? JSON.stringify(message.teachingMetadata) : null,
+          message.timestamp.toISOString()
+        );
+      }
+      deleteJunctionStmt.run(sessionId);
+      const rows = orderedMessageIds.map((id, idx) => ({ id, order: idx }));
+      for (const msg of rows) {
+        insertJunctionStmt.run(sessionId, msg.id, msg.order);
+      }
+      if (hasSessionFieldUpdate) {
+        const updateValues = [...values, sessionId];
+        const sql = `UPDATE sessions SET ${fields.join(', ')} WHERE id = ?`;
+        this.db.prepare(sql).run(...updateValues);
+      }
+    });
+
+    persist();
+  }
+
   // Instructor profile operations
   async loadInstructorProfile(profileId: string): Promise<InstructorProfile | null> {
     // Try to load from instructor_profiles table first

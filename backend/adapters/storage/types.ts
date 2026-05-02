@@ -17,6 +17,17 @@ export interface StorageAdapter {
   loadMessage(messageId: string): Promise<Message | null>;
   loadMessages(messageIds: string[]): Promise<Message[]>;
   saveMessage(message: Message): Promise<void>;
+  /**
+   * Atomically persist new message rows and replace session_messages order.
+   * Use this instead of saveMessage + updateSession({ messageIds }) to avoid
+   * orphan rows when the second step fails.
+   */
+  saveMessagesAndSetMessageIds(
+    sessionId: string,
+    messages: Message[],
+    orderedMessageIds: string[],
+    sessionUpdates?: Partial<Pick<Session, 'sessionState' | 'lastActivityAt' | 'endedAt'>>
+  ): Promise<void>;
 
   // Instructor profile operations
   loadInstructorProfile(profileId: string): Promise<InstructorProfile | null>;
