@@ -29,10 +29,35 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (config.type === 'sqlite') {
       const dbPath = config.connectionString || ':memory:';
       this.db = new Database(dbPath);
+      // SQLite disables foreign keys by default; without this, inserts can silently
+      // skip rows when referenced instructors/learners are missing (data loss).
+      this.db.pragma('foreign_keys = ON');
       this.initializeSchema();
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
     }
+  }
+
+  /**
+   * Ensure a learner row exists so session/material FK inserts cannot be dropped.
+   */
+  private ensureLearnerExists(learnerId: string): void {
+    const row = this.db.prepare('SELECT 1 FROM learners WHERE id = ?').get(learnerId);
+    if (row) return;
+    this.db
+      .prepare('INSERT INTO learners (id, name, level) VALUES (?, ?, ?)')
+      .run(learnerId, '(implicit)', 'beginner');
+  }
+
+  /**
+   * Ensure an instructor row exists so session/material FK inserts cannot be dropped.
+   */
+  private ensureInstructorExists(instructorId: string): void {
+    const row = this.db.prepare('SELECT 1 FROM instructors WHERE id = ?').get(instructorId);
+    if (row) return;
+    this.db
+      .prepare('INSERT INTO instructors (id, name, bio, tone) VALUES (?, ?, ?, ?)')
+      .run(instructorId, '(implicit)', null, 'friendly');
   }
 
   /**
@@ -181,12 +206,26 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveSession(session: Session): Promise<void> {
+    this.ensureInstructorExists(session.instructorId);
+    this.ensureLearnerExists(session.learnerId);
+
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO sessions (
+      INSERT INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
         subject, topic, learning_objective, session_state,
         started_at, last_activity_at, ended_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        instructor_id = excluded.instructor_id,
+        learner_id = excluded.learner_id,
+        instructor_profile_id = excluded.instructor_profile_id,
+        subject = excluded.subject,
+        topic = excluded.topic,
+        learning_objective = excluded.learning_objective,
+        session_state = excluded.session_state,
+        started_at = excluded.started_at,
+        last_activity_at = excluded.last_activity_at,
+        ended_at = excluded.ended_at
     `);
 
     stmt.run(
@@ -449,6 +488,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     contentUrl?: string;
     contentText?: string;
   }): Promise<void> {
+    this.ensureInstructorExists(data.instructorId);
+
     const stmt = this.db.prepare(`
       INSERT INTO instructor_materials (id, instructor_id, type, content_url, content_text)
       VALUES (?, ?, ?, ?, ?)
