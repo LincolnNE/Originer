@@ -7,7 +7,8 @@
     "build": "tsc",
     "dev": "ts-node src/server.ts",
     "start": "node dist/src/server.js",
-    "test": "jest"
+    "test": "jest",
+    "test:storage": "ts-node --project tests/tsconfig.json tests/load-messages-order.test.ts"
   },
   "keywords": [],
   "author": "",
