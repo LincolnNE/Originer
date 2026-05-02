@@ -192,6 +192,28 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     this.ensureParticipantRowsForSession(defaultInstructorId, defaultLearnerId);
   }
 
+  /**
+   * session_messages FK-references messages(id). With foreign_keys=ON, linking IDs before rows exist throws SQLITE_CONSTRAINT.
+   * Validates existence and session ownership so callers get an explicit error.
+   */
+  private ensureMessageRowsBelongToSession(sessionId: string, messageIds: string[]): void {
+    if (messageIds.length === 0) return;
+    const stmt = this.db.prepare('SELECT session_id FROM messages WHERE id = ?');
+    for (const messageId of messageIds) {
+      const row = stmt.get(messageId) as { session_id: string } | undefined;
+      if (!row) {
+        throw new Error(
+          `Cannot link messages to session: message row missing for id ${messageId}. Save messages before updating session messageIds.`
+        );
+      }
+      if (row.session_id !== sessionId) {
+        throw new Error(
+          `Cannot link message ${messageId} to session ${sessionId}: message belongs to session ${row.session_id}`
+        );
+      }
+    }
+  }
+
   // Session operations
   async loadSession(sessionId: string): Promise<Session | null> {
     const sessionRow = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as any;
@@ -248,6 +270,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
     deleteStmt.run(session.id);
 
+    this.ensureMessageRowsBelongToSession(session.id, session.messageIds);
+
     const insertStmt = this.db.prepare(
       'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
     );
@@ -277,6 +301,7 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       values.push(updates.endedAt?.toISOString() || null);
     }
     if (updates.messageIds !== undefined) {
+      this.ensureMessageRowsBelongToSession(sessionId, updates.messageIds);
       // Delete old message IDs
       this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
       // Insert new message IDs
