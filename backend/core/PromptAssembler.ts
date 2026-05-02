@@ -229,21 +229,20 @@ export class PromptAssembler {
       return '';
     }
 
-    // Sort by timestamp
-    const sortedMessages = [...messages].sort((a, b) => 
-      a.timestamp.getTime() - b.timestamp.getTime()
-    );
+    // Preserve caller order (session turn order). Do not sort by timestamp: same-ms
+    // timestamps and clock skew can swap learner/instructor turns and corrupt LLM context.
+    const orderedMessages = [...messages];
 
     // Limit to recent messages if maxTokens specified (rough estimate: 4 chars per token)
-    let messagesToInclude = sortedMessages;
+    let messagesToInclude = orderedMessages;
     if (maxTokens) {
       const maxChars = maxTokens * 4;
       let totalChars = 0;
       const recentMessages: Message[] = [];
       
       // Start from most recent and work backwards
-      for (let i = sortedMessages.length - 1; i >= 0; i--) {
-        const msg = sortedMessages[i];
+      for (let i = orderedMessages.length - 1; i >= 0; i--) {
+        const msg = orderedMessages[i];
         const msgChars = msg.content.length + 50; // Rough estimate including formatting
         if (totalChars + msgChars > maxChars && recentMessages.length > 0) {
           break;
