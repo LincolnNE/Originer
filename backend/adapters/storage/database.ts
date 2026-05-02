@@ -203,7 +203,13 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       session.endedAt?.toISOString() || null
     );
 
-    // Save message IDs
+    // Sync session_messages only when we have ids to write. Empty messageIds is the
+    // normal case for a newly created session; deleting here would wipe junction rows
+    // on every saveSession and orphan messages / break loadMessages ordering.
+    if (session.messageIds.length === 0) {
+      return;
+    }
+
     const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
     deleteStmt.run(session.id);
 
