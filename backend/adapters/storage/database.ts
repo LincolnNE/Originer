@@ -29,6 +29,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (config.type === 'sqlite') {
       const dbPath = config.connectionString || ':memory:';
       this.db = new Database(dbPath);
+      // SQLite defaults foreign_keys=OFF; enforce constraints so INSERTs fail loudly when refs are missing.
+      this.db.pragma('foreign_keys = ON');
       this.initializeSchema();
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
@@ -160,11 +162,22 @@ export class DatabaseStorageAdapter implements StorageAdapter {
    * Uses INSERT OR IGNORE so concurrent creates and re-used IDs are safe.
    */
   private ensureParticipantRowsForSession(instructorId: string, learnerId: string): void {
+    this.ensureInstructorRow(instructorId);
+    this.ensureLearnerRow(learnerId);
+  }
+
+  private ensureInstructorRow(instructorId: string): void {
     this.db
       .prepare(
         `INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, ?, ?)`
       )
       .run(instructorId, 'Instructor', null, 'friendly');
+  }
+
+  /**
+   * Ensure a learners row exists (e.g. learner_memory FK, or session learner_id).
+   */
+  private ensureLearnerRow(learnerId: string): void {
     this.db
       .prepare(`INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)`)
       .run(learnerId, 'Learner', 'beginner');
@@ -321,6 +334,13 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveMessage(message: Message): Promise<void> {
+    const sessionRow = this.db
+      .prepare('SELECT id FROM sessions WHERE id = ?')
+      .get(message.sessionId) as { id: string } | undefined;
+    if (!sessionRow) {
+      throw new Error(`Cannot save message: session not found: ${message.sessionId}`);
+    }
+
     const stmt = this.db.prepare(`
       INSERT INTO messages (
         id, session_id, sender, role, content, message_type, teaching_metadata, created_at
@@ -426,6 +446,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveLearnerMemory(memory: LearnerMemory): Promise<void> {
+    this.ensureLearnerRow(memory.learnerId);
+
     const weakConcepts = memory.weaknesses || [];
     const masteredConcepts = memory.learnedConcepts
       .filter(c => c.masteryLevel === 'mastered')
@@ -477,6 +499,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     contentUrl?: string;
     contentText?: string;
   }): Promise<void> {
+    this.ensureInstructorRow(data.instructorId);
+
     const stmt = this.db.prepare(`
       INSERT INTO instructor_materials (id, instructor_id, type, content_url, content_text)
       VALUES (?, ?, ?, ?, ?)
