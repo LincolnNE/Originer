@@ -2,10 +2,17 @@
 
 import { redirect } from 'next/navigation';
 
+/**
+ * Start a session via the backend (must match POST /api/v1/sessions/start).
+ * Server actions run on the Node server; use an absolute API base — relative
+ * /api/v1/... URLs hit the Next app and return 404 when the API is on another host.
+ */
 export async function startSession() {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
-  const apiUrl = apiBaseUrl ? `${apiBaseUrl}/api/v1/sessions` : '/api/v1/sessions';
-  
+  const apiBase =
+    process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:4094');
+  const apiUrl = `${apiBase}/api/v1/sessions/start`;
+
   try {
     const response = await fetch(apiUrl, {
       method: 'POST',
@@ -13,10 +20,11 @@ export async function startSession() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        instructorProfileId: 'default',
+        instructor_id: 'default',
+        learner_id: 'learner_mvp',
         subject: 'General',
         topic: 'Introduction',
-        learningObjective: 'Get started with learning',
+        learning_objective: 'Get started with learning',
       }),
     });
 
@@ -25,9 +33,10 @@ export async function startSession() {
     }
 
     const result = await response.json();
-    
-    if (result.success && result.data?.session?.id) {
-      redirect(`/lessons/${result.data.session.id}/screen_001`);
+
+    const sessionId = result?.data?.session_id as string | undefined;
+    if (result.success && sessionId) {
+      redirect(`/lessons/${sessionId}/screen_001`);
     } else {
       redirect('/');
     }
