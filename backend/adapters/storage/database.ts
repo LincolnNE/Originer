@@ -278,14 +278,19 @@ export class DatabaseStorageAdapter implements StorageAdapter {
 
     // Order must match session message sequence (messageIds), not created_at.
     // Same timestamps or out-of-order inserts would otherwise corrupt prompt history.
+    // Reorder in memory so we only bind N parameters; a CASE+IN pattern needs 2N and can
+    // exceed SQLITE_MAX_VARIABLE_NUMBER on long sessions (often 999 or 32766).
     const placeholders = messageIds.map(() => '?').join(',');
-    const orderCase = messageIds
-      .map((id, idx) => `WHEN id = ? THEN ${idx}`)
-      .join(' ');
-    const sql = `SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY CASE ${orderCase} END`;
-    const rows = this.db.prepare(sql).all(...messageIds, ...messageIds) as any[];
+    const rows = this.db
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
+      .all(...messageIds) as any[];
 
-    return rows.map(row => ({
+    const rowById = new Map<string, any>();
+    for (const row of rows) {
+      rowById.set(row.id, row);
+    }
+
+    const toMessage = (row: any): Message => ({
       id: row.id,
       sessionId: row.session_id,
       role: row.role as MessageRole,
@@ -293,7 +298,14 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       messageType: (row.message_type || 'question') as MessageType,
       teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
       timestamp: new Date(row.created_at),
-    }));
+    });
+
+    const ordered: Message[] = [];
+    for (const id of messageIds) {
+      const row = rowById.get(id);
+      if (row) ordered.push(toMessage(row));
+    }
+    return ordered;
   }
 
   async saveMessage(message: Message): Promise<void> {
