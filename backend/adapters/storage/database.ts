@@ -456,6 +456,21 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     stmt.run(data.id, data.instructorId, data.type, data.contentUrl || null, data.contentText || null);
   }
 
+  /**
+   * Ensure one anonymous MVP instructor/learner exist (used by POST /api/v1/sessions).
+   * Idempotent: safe to call on every request for cold in-memory DBs.
+   */
+  ensureMvpSeedRecords(): void {
+    this.db.exec(`
+      INSERT OR IGNORE INTO instructors (id, name, bio, tone)
+      VALUES ('default', 'Default Instructor', NULL, 'friendly');
+    `);
+    this.db.exec(`
+      INSERT OR IGNORE INTO learners (id, name, level)
+      VALUES ('default', 'Learner', 'beginner');
+    `);
+  }
+
   close(): void {
     this.db.close();
   }
