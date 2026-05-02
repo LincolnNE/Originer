@@ -29,6 +29,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (config.type === 'sqlite') {
       const dbPath = config.connectionString || ':memory:';
       this.db = new Database(dbPath);
+      // SQLite defaults foreign_keys=OFF; enforce constraints so INSERTs fail loudly when refs are missing.
+      this.db.pragma('foreign_keys = ON');
       this.initializeSchema();
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
@@ -151,6 +153,43 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
       CREATE INDEX IF NOT EXISTS idx_session_messages_order ON session_messages(session_id, sequence_order);
     `);
+
+    this.ensureBootstrapRows();
+  }
+
+  /**
+   * Ensure instructor and learner rows exist for FK constraints on sessions.
+   * Uses INSERT OR IGNORE so concurrent creates and re-used IDs are safe.
+   */
+  private ensureParticipantRowsForSession(instructorId: string, learnerId: string): void {
+    this.ensureInstructorRow(instructorId);
+    this.ensureLearnerRow(learnerId);
+  }
+
+  private ensureInstructorRow(instructorId: string): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, ?, ?)`
+      )
+      .run(instructorId, 'Instructor', null, 'friendly');
+  }
+
+  /**
+   * Ensure a learners row exists (e.g. learner_memory FK, or session learner_id).
+   */
+  private ensureLearnerRow(learnerId: string): void {
+    this.db
+      .prepare(`INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)`)
+      .run(learnerId, 'Learner', 'beginner');
+  }
+
+  /**
+   * Ensure rows referenced by MVP defaults exist so session INSERTs satisfy FK constraints.
+   */
+  private ensureBootstrapRows(): void {
+    const defaultInstructorId = process.env.DEFAULT_INSTRUCTOR_ID || 'default';
+    const defaultLearnerId = process.env.DEFAULT_LEARNER_ID || 'anonymous';
+    this.ensureParticipantRowsForSession(defaultInstructorId, defaultLearnerId);
   }
 
   // Session operations
@@ -181,6 +220,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveSession(session: Session): Promise<void> {
+    this.ensureParticipantRowsForSession(session.instructorId, session.learnerId);
+
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
@@ -293,6 +334,13 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveMessage(message: Message): Promise<void> {
+    const sessionRow = this.db
+      .prepare('SELECT id FROM sessions WHERE id = ?')
+      .get(message.sessionId) as { id: string } | undefined;
+    if (!sessionRow) {
+      throw new Error(`Cannot save message: session not found: ${message.sessionId}`);
+    }
+
     const stmt = this.db.prepare(`
       INSERT INTO messages (
         id, session_id, sender, role, content, message_type, teaching_metadata, created_at
@@ -398,6 +446,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveLearnerMemory(memory: LearnerMemory): Promise<void> {
+    this.ensureLearnerRow(memory.learnerId);
+
     const weakConcepts = memory.weaknesses || [];
     const masteredConcepts = memory.learnedConcepts
       .filter(c => c.masteryLevel === 'mastered')
@@ -449,6 +499,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     contentUrl?: string;
     contentText?: string;
   }): Promise<void> {
+    this.ensureInstructorRow(data.instructorId);
+
     const stmt = this.db.prepare(`
       INSERT INTO instructor_materials (id, instructor_id, type, content_url, content_text)
       VALUES (?, ?, ?, ?, ?)
