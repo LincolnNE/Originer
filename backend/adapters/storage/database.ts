@@ -151,6 +151,36 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
       CREATE INDEX IF NOT EXISTS idx_session_messages_order ON session_messages(session_id, sequence_order);
     `);
+
+    this.ensureBootstrapRows();
+  }
+
+  /**
+   * Ensure rows referenced by MVP defaults exist so session INSERTs satisfy FK constraints.
+   */
+  private ensureBootstrapRows(): void {
+    const defaultInstructorId = process.env.DEFAULT_INSTRUCTOR_ID || 'default';
+    const defaultLearnerId = process.env.DEFAULT_LEARNER_ID || 'anonymous';
+
+    const instructorExists = this.db
+      .prepare('SELECT 1 FROM instructors WHERE id = ?')
+      .get(defaultInstructorId);
+    if (!instructorExists) {
+      this.db
+        .prepare(
+          `INSERT INTO instructors (id, name, bio, tone) VALUES (?, ?, ?, ?)`
+        )
+        .run(defaultInstructorId, 'Default Instructor', null, 'friendly');
+    }
+
+    const learnerExists = this.db
+      .prepare('SELECT 1 FROM learners WHERE id = ?')
+      .get(defaultLearnerId);
+    if (!learnerExists) {
+      this.db
+        .prepare(`INSERT INTO learners (id, name, level) VALUES (?, ?, ?)`)
+        .run(defaultLearnerId, 'Learner', 'beginner');
+    }
   }
 
   // Session operations
