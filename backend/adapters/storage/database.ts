@@ -156,31 +156,27 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   /**
+   * Ensure instructor and learner rows exist for FK constraints on sessions.
+   * Uses INSERT OR IGNORE so concurrent creates and re-used IDs are safe.
+   */
+  private ensureParticipantRowsForSession(instructorId: string, learnerId: string): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, ?, ?)`
+      )
+      .run(instructorId, 'Instructor', null, 'friendly');
+    this.db
+      .prepare(`INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)`)
+      .run(learnerId, 'Learner', 'beginner');
+  }
+
+  /**
    * Ensure rows referenced by MVP defaults exist so session INSERTs satisfy FK constraints.
    */
   private ensureBootstrapRows(): void {
     const defaultInstructorId = process.env.DEFAULT_INSTRUCTOR_ID || 'default';
     const defaultLearnerId = process.env.DEFAULT_LEARNER_ID || 'anonymous';
-
-    const instructorExists = this.db
-      .prepare('SELECT 1 FROM instructors WHERE id = ?')
-      .get(defaultInstructorId);
-    if (!instructorExists) {
-      this.db
-        .prepare(
-          `INSERT INTO instructors (id, name, bio, tone) VALUES (?, ?, ?, ?)`
-        )
-        .run(defaultInstructorId, 'Default Instructor', null, 'friendly');
-    }
-
-    const learnerExists = this.db
-      .prepare('SELECT 1 FROM learners WHERE id = ?')
-      .get(defaultLearnerId);
-    if (!learnerExists) {
-      this.db
-        .prepare(`INSERT INTO learners (id, name, level) VALUES (?, ?, ?)`)
-        .run(defaultLearnerId, 'Learner', 'beginner');
-    }
+    this.ensureParticipantRowsForSession(defaultInstructorId, defaultLearnerId);
   }
 
   // Session operations
@@ -211,6 +207,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveSession(session: Session): Promise<void> {
+    this.ensureParticipantRowsForSession(session.instructorId, session.learnerId);
+
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
