@@ -97,6 +97,9 @@ export class SessionOrchestrator {
       lastActivityAt: new Date(),
     });
 
+    /** Set after instructor row is persisted; used to avoid destructive rollback if a later step fails. */
+    let instructorMessageId: string | undefined;
+
     try {
       // Step 3: Assemble prompt
       // TODO: Assemble full prompt using PromptAssembler
@@ -182,6 +185,7 @@ export class SessionOrchestrator {
 
       // TODO: Save instructor message
       await this.storageAdapter.saveMessage(instructorMessage);
+      instructorMessageId = instructorMessage.id;
 
       // TODO: Update session with instructor message ID
       const finalMessageIds = [...updatedMessageIds, instructorMessage.id];
@@ -211,11 +215,19 @@ export class SessionOrchestrator {
       // Step 8: Return response
       return rawResponse;
     } catch (error) {
-      // Avoid committing learner turns when downstream processing fails (LLM, validation, persistence).
-      await this.storageAdapter.updateSession(sessionId, {
-        messageIds: [...session.messageIds],
-      });
-      await this.storageAdapter.deleteMessage(learnerMessage.id);
+      // Roll back the learner-only checkpoint unless the instructor reply was already persisted.
+      if (instructorMessageId !== undefined) {
+        // Instructor row exists; keep learner + instructor in history even if e.g. saveLearnerMemory fails.
+        await this.storageAdapter.updateSession(sessionId, {
+          messageIds: [...session.messageIds, learnerMessage.id, instructorMessageId],
+          lastActivityAt: new Date(),
+        });
+      } else {
+        await this.storageAdapter.updateSession(sessionId, {
+          messageIds: [...session.messageIds],
+        });
+        await this.storageAdapter.deleteMessage(learnerMessage.id);
+      }
       throw error;
     }
   }
