@@ -203,20 +203,19 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       session.endedAt?.toISOString() || null
     );
 
-    // Save message IDs
-    const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
-    deleteStmt.run(session.id);
-
-    const insertStmt = this.db.prepare(
-      'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
-    );
-    const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-      for (const msg of messages) {
-        insertStmt.run(session.id, msg.id, msg.order);
+    // Replace junction rows atomically: if INSERT fails after DELETE, SQLite rolls back the whole transaction.
+    const replaceSessionMessages = this.db.transaction(
+      (sessionId: string, messages: Array<{ id: string; order: number }>) => {
+        this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
+        const insertStmt = this.db.prepare(
+          'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
+        );
+        for (const msg of messages) {
+          insertStmt.run(sessionId, msg.id, msg.order);
+        }
       }
-    });
-
-    insertMany(session.messageIds.map((id, idx) => ({ id, order: idx })));
+    );
+    replaceSessionMessages(session.id, session.messageIds.map((id, idx) => ({ id, order: idx })));
   }
 
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
@@ -236,18 +235,18 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       values.push(updates.endedAt?.toISOString() || null);
     }
     if (updates.messageIds !== undefined) {
-      // Delete old message IDs
-      this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
-      // Insert new message IDs
-      const insertStmt = this.db.prepare(
-        'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
-      );
-      const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-        for (const msg of messages) {
-          insertStmt.run(sessionId, msg.id, msg.order);
+      const replaceSessionMessages = this.db.transaction(
+        (sid: string, messages: Array<{ id: string; order: number }>) => {
+          this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sid);
+          const insertStmt = this.db.prepare(
+            'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
+          );
+          for (const msg of messages) {
+            insertStmt.run(sid, msg.id, msg.order);
+          }
         }
-      });
-      insertMany(updates.messageIds.map((id, idx) => ({ id, order: idx })));
+      );
+      replaceSessionMessages(sessionId, updates.messageIds.map((id, idx) => ({ id, order: idx })));
     }
 
     if (fields.length > 0) {
@@ -278,10 +277,12 @@ export class DatabaseStorageAdapter implements StorageAdapter {
 
     const placeholders = messageIds.map(() => '?').join(',');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
 
-    return rows.map(row => ({
+    const byId = new Map(rows.map((row: any) => [row.id as string, row]));
+
+    const toMessage = (row: any): Message => ({
       id: row.id,
       sessionId: row.session_id,
       role: row.role as MessageRole,
@@ -289,7 +290,15 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       messageType: (row.message_type || 'question') as MessageType,
       teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
       timestamp: new Date(row.created_at),
-    }));
+    });
+
+    // Preserve session_messages order (caller passes messageIds in sequence_order).
+    const out: Message[] = [];
+    for (const id of messageIds) {
+      const row = byId.get(id);
+      if (row) out.push(toMessage(row));
+    }
+    return out;
   }
 
   async saveMessage(message: Message): Promise<void> {
