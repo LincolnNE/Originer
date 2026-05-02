@@ -8,7 +8,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { StorageAdapter } from '../../backend/adapters/storage/types';
 import { SessionOrchestrator } from '../../backend/core/SessionOrchestrator';
-import { DatabaseStorageAdapter } from '../../backend/adapters/storage/database';
 import type { Session, SessionState } from '../../backend/core/types';
 
 interface StartSessionRequest {
@@ -92,10 +91,6 @@ export async function registerSessionRoutes(
               'Missing required fields: instructorProfileId, subject, topic, learningObjective',
           },
         });
-      }
-
-      if (storageAdapter instanceof DatabaseStorageAdapter) {
-        storageAdapter.ensureMvpSeedRecords();
       }
 
       try {

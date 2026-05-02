@@ -29,6 +29,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (config.type === 'sqlite') {
       const dbPath = config.connectionString || ':memory:';
       this.db = new Database(dbPath);
+      // Honor FK constraints when enabled (e.g. PRAGMA foreign_keys=ON).
+      this.db.pragma('foreign_keys = ON');
       this.initializeSchema();
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
@@ -153,6 +155,25 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     `);
   }
 
+  /**
+   * Sessions reference instructors and learners. Insert stub rows so INSERT INTO sessions
+   * cannot violate FK constraints when foreign_keys is enabled.
+   */
+  private ensureParticipantRows(instructorId: string, learnerId: string): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO instructors (id, name, bio, tone)
+         VALUES (?, ?, NULL, 'friendly')`
+      )
+      .run(instructorId, `Instructor ${instructorId}`);
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO learners (id, name, level)
+         VALUES (?, ?, 'beginner')`
+      )
+      .run(learnerId, `Learner ${learnerId}`);
+  }
+
   // Session operations
   async loadSession(sessionId: string): Promise<Session | null> {
     const sessionRow = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as any;
@@ -181,6 +202,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveSession(session: Session): Promise<void> {
+    this.ensureParticipantRows(session.instructorId, session.learnerId);
+
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
@@ -454,21 +477,6 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       VALUES (?, ?, ?, ?, ?)
     `);
     stmt.run(data.id, data.instructorId, data.type, data.contentUrl || null, data.contentText || null);
-  }
-
-  /**
-   * Ensure one anonymous MVP instructor/learner exist (used by POST /api/v1/sessions).
-   * Idempotent: safe to call on every request for cold in-memory DBs.
-   */
-  ensureMvpSeedRecords(): void {
-    this.db.exec(`
-      INSERT OR IGNORE INTO instructors (id, name, bio, tone)
-      VALUES ('default', 'Default Instructor', NULL, 'friendly');
-    `);
-    this.db.exec(`
-      INSERT OR IGNORE INTO learners (id, name, level)
-      VALUES ('default', 'Learner', 'beginner');
-    `);
   }
 
   close(): void {
