@@ -278,10 +278,10 @@ export class DatabaseStorageAdapter implements StorageAdapter {
 
     const placeholders = messageIds.map(() => '?').join(',');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
 
-    return rows.map(row => ({
+    const rowToMessage = (row: any): Message => ({
       id: row.id,
       sessionId: row.session_id,
       role: row.role as MessageRole,
@@ -289,7 +289,16 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       messageType: (row.message_type || 'question') as MessageType,
       teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
       timestamp: new Date(row.created_at),
-    }));
+    });
+
+    const byId = new Map(rows.map((row) => [row.id as string, rowToMessage(row)]));
+    return messageIds.map((id) => {
+      const msg = byId.get(id);
+      if (!msg) {
+        throw new Error(`Message not found for session history: ${id}`);
+      }
+      return msg;
+    });
   }
 
   async saveMessage(message: Message): Promise<void> {
@@ -440,6 +449,20 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       INSERT INTO learners (id, name, level) VALUES (?, ?, ?)
     `);
     stmt.run(data.id, data.name, data.level || 'beginner');
+  }
+
+  /** Satisfy FK when session references an instructor id that has no row yet. */
+  async ensureInstructorExists(instructorId: string, name = 'Instructor'): Promise<void> {
+    const row = this.db.prepare('SELECT 1 FROM instructors WHERE id = ?').get(instructorId);
+    if (row) return;
+    await this.createInstructor({ id: instructorId, name, tone: 'friendly' });
+  }
+
+  /** Satisfy FK when session references a learner id that has no row yet. */
+  async ensureLearnerExists(learnerId: string, name = 'Learner'): Promise<void> {
+    const row = this.db.prepare('SELECT 1 FROM learners WHERE id = ?').get(learnerId);
+    if (row) return;
+    await this.createLearner({ id: learnerId, name, level: 'beginner' });
   }
 
   async saveInstructorMaterial(data: {
