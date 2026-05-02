@@ -235,7 +235,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       fields.push('ended_at = ?');
       values.push(updates.endedAt?.toISOString() || null);
     }
-    if (updates.messageIds !== undefined) {
+    const messageIdsChanged = updates.messageIds !== undefined;
+    if (messageIdsChanged) {
       // Delete old message IDs
       this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
       // Insert new message IDs
@@ -247,7 +248,15 @@ export class DatabaseStorageAdapter implements StorageAdapter {
           insertStmt.run(sessionId, msg.id, msg.order);
         }
       });
-      insertMany(updates.messageIds.map((id, idx) => ({ id, order: idx })));
+      insertMany(updates.messageIds!.map((id, idx) => ({ id, order: idx })));
+    }
+
+    // Must run UPDATE when scalar fields change. When only messageIds change, callers often
+    // pass lastActivityAt equal to the stored value (e.g. orchestrator rollback); that skips
+    // pushing last_activity_at above, leaving fields empty and skipping UPDATE — which would
+    // orphan session_messages if INSERT failed. Always touch the row when messageIds changed.
+    if (fields.length === 0 && messageIdsChanged) {
+      fields.push('last_activity_at = last_activity_at');
     }
 
     if (fields.length > 0) {
