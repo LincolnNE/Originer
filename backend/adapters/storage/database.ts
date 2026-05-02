@@ -189,34 +189,32 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    stmt.run(
-      session.id,
-      session.instructorId,
-      session.learnerId,
-      session.instructorProfileId,
-      session.subject,
-      session.topic,
-      session.learningObjective,
-      session.sessionState,
-      session.startedAt.toISOString(),
-      session.lastActivityAt.toISOString(),
-      session.endedAt?.toISOString() || null
-    );
-
-    // Save message IDs
     const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
-    deleteStmt.run(session.id);
-
     const insertStmt = this.db.prepare(
       'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
     );
-    const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-      for (const msg of messages) {
+    const rows = session.messageIds.map((id, idx) => ({ id, order: idx }));
+
+    // Session row + junction must commit together: avoids torn state if the process dies mid-write.
+    this.db.transaction(() => {
+      stmt.run(
+        session.id,
+        session.instructorId,
+        session.learnerId,
+        session.instructorProfileId,
+        session.subject,
+        session.topic,
+        session.learningObjective,
+        session.sessionState,
+        session.startedAt.toISOString(),
+        session.lastActivityAt.toISOString(),
+        session.endedAt?.toISOString() || null
+      );
+      deleteStmt.run(session.id);
+      for (const msg of rows) {
         insertStmt.run(session.id, msg.id, msg.order);
       }
-    });
-
-    insertMany(session.messageIds.map((id, idx) => ({ id, order: idx })));
+    })();
   }
 
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
@@ -236,30 +234,35 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       values.push(updates.endedAt?.toISOString() || null);
     }
     if (updates.messageIds !== undefined) {
-      // Delete old message IDs
-      this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
-      // Insert new message IDs
+      const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
       const insertStmt = this.db.prepare(
         'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
       );
-      const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-        for (const msg of messages) {
+      const rows = updates.messageIds.map((id, idx) => ({ id, order: idx }));
+
+      // Atomically replace junction + sessions row so a crash cannot leave stale messageIds
+      // on the session after the DELETE, or a touched session without matching junction rows.
+      this.db.transaction(() => {
+        deleteStmt.run(sessionId);
+        for (const msg of rows) {
           insertStmt.run(sessionId, msg.id, msg.order);
         }
-      });
-      insertMany(updates.messageIds.map((id, idx) => ({ id, order: idx })));
-    }
-
-    if (fields.length > 0) {
+        if (fields.length > 0) {
+          const updateValues = [...values, sessionId];
+          const sql = `UPDATE sessions SET ${fields.join(', ')} WHERE id = ?`;
+          this.db.prepare(sql).run(...updateValues);
+        } else {
+          // Session row must still be updated when only the junction table changes; otherwise
+          // callers that omit lastActivityAt/sessionState leave the sessions row untouched.
+          this.db
+            .prepare(`UPDATE sessions SET last_activity_at = datetime('now') WHERE id = ?`)
+            .run(sessionId);
+        }
+      })();
+    } else if (fields.length > 0) {
       values.push(sessionId);
       const sql = `UPDATE sessions SET ${fields.join(', ')} WHERE id = ?`;
       this.db.prepare(sql).run(...values);
-    } else if (updates.messageIds !== undefined) {
-      // Session row must still be updated when only the junction table changes; otherwise
-      // callers that omit lastActivityAt/sessionState leave the sessions row untouched.
-      this.db
-        .prepare(`UPDATE sessions SET last_activity_at = datetime('now') WHERE id = ?`)
-        .run(sessionId);
     }
   }
 
