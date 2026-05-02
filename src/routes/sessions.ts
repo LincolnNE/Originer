@@ -8,6 +8,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { StorageAdapter } from '../../backend/adapters/storage/types';
 import { SessionOrchestrator } from '../../backend/core/SessionOrchestrator';
+import type { Session, SessionState } from '../../backend/core/types';
 
 interface StartSessionRequest {
   instructor_id: string;
@@ -22,6 +23,45 @@ interface SendMessageRequest {
 }
 
 /**
+ * Create session body aligned with `frontend/types` CreateSessionRequest (MVP / anonymous).
+ */
+interface CreateSessionRequestV1 {
+  instructorProfileId: string;
+  subject: string;
+  topic: string;
+  learningObjective: string;
+  learnerId?: string;
+}
+
+function toApiSession(
+  s: Session
+): {
+  id: string;
+  learnerId: string;
+  instructorProfileId: string;
+  subject: string;
+  topic: string;
+  learningObjective: string;
+  sessionState: SessionState;
+  startedAt: string;
+  lastActivityAt: string;
+  endedAt: string | null;
+} {
+  return {
+    id: s.id,
+    learnerId: s.learnerId,
+    instructorProfileId: s.instructorProfileId,
+    subject: s.subject,
+    topic: s.topic,
+    learningObjective: s.learningObjective,
+    sessionState: s.sessionState,
+    startedAt: s.startedAt.toISOString(),
+    lastActivityAt: s.lastActivityAt.toISOString(),
+    endedAt: s.endedAt ? s.endedAt.toISOString() : null,
+  };
+}
+
+/**
  * Register session routes
  */
 export async function registerSessionRoutes(
@@ -29,6 +69,92 @@ export async function registerSessionRoutes(
   storageAdapter: StorageAdapter,
   sessionOrchestrator: SessionOrchestrator
 ): Promise<void> {
+  /**
+   * POST /api/v1/sessions
+   * Create a session (contract used by the Next.js app and `frontend/services/api/sessions`).
+   */
+  server.post<{ Body: CreateSessionRequestV1 }>(
+    '/api/v1/sessions',
+    async (request: FastifyRequest<{ Body: CreateSessionRequestV1 }>, reply: FastifyReply) => {
+      const body = request.body;
+      if (
+        !body?.instructorProfileId ||
+        !body?.subject ||
+        !body?.topic ||
+        !body?.learningObjective
+      ) {
+        return reply.code(400).send({
+          success: false,
+          error: {
+            code: 'INVALID_REQUEST',
+            message:
+              'Missing required fields: instructorProfileId, subject, topic, learningObjective',
+          },
+        });
+      }
+
+      try {
+        const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+        const profileId = body.instructorProfileId;
+        const learnerId = body.learnerId?.trim() || 'default';
+
+        const session: Session = {
+          id: sessionId,
+          instructorId: profileId,
+          learnerId,
+          instructorProfileId: profileId,
+          subject: body.subject,
+          topic: body.topic,
+          learningObjective: body.learningObjective,
+          sessionState: 'active',
+          messageIds: [],
+          startedAt: new Date(),
+          lastActivityAt: new Date(),
+          endedAt: null,
+        };
+
+        await storageAdapter.saveSession(session);
+
+        return reply.send({
+          success: true,
+          data: { session: toApiSession(session) },
+        });
+      } catch (error: unknown) {
+        request.log.error(error);
+        const message = error instanceof Error ? error.message : 'Failed to create session';
+        return reply.code(500).send({
+          success: false,
+          error: { code: 'SESSION_CREATION_ERROR', message },
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /api/v1/sessions/:id
+   * Load session (used by `sessionsApi.getSession` and client hooks).
+   */
+  server.get<{ Params: { id: string } }>(
+    '/api/v1/sessions/:id',
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      const { id } = request.params;
+      const session = await storageAdapter.loadSession(id);
+      if (!session) {
+        return reply.code(404).send({
+          success: false,
+          error: {
+            code: 'SESSION_NOT_FOUND',
+            message: `Session not found: ${id}`,
+          },
+        });
+      }
+      return reply.send({
+        success: true,
+        data: { session: toApiSession(session) },
+      });
+    }
+  );
+
   /**
    * POST /sessions/start
    * Start a new teaching session
