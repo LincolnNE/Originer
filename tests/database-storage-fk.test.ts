@@ -31,6 +31,62 @@ describe('DatabaseStorageAdapter foreign keys', () => {
     storage.close();
   });
 
+  it('saveSession upsert does not drop session_messages when re-saving an existing session', async () => {
+    const storage = new DatabaseStorageAdapter({ type: 'sqlite', connectionString: ':memory:' });
+
+    const sessionId = 'sess_resave';
+    const instructorId = 'inst_r';
+    const learnerId = 'learner_r';
+
+    await storage.saveSession({
+      id: sessionId,
+      instructorId,
+      learnerId,
+      instructorProfileId: instructorId,
+      subject: 'S',
+      topic: 'T',
+      learningObjective: 'L',
+      sessionState: 'active',
+      messageIds: [],
+      startedAt: new Date('2020-01-01T00:00:00.000Z'),
+      lastActivityAt: new Date('2020-01-01T00:00:00.000Z'),
+      endedAt: null,
+    });
+
+    const db = (storage as unknown as { db: import('better-sqlite3').Database }).db;
+    db.prepare(
+      `INSERT INTO messages (id, session_id, sender, role, content, message_type, created_at)
+       VALUES (?, ?, 'learner', 'learner', 'hi', 'question', ?)`
+    ).run('m_a', sessionId, new Date().toISOString());
+
+    await storage.saveSession({
+      id: sessionId,
+      instructorId,
+      learnerId,
+      instructorProfileId: instructorId,
+      subject: 'S2',
+      topic: 'T2',
+      learningObjective: 'L2',
+      sessionState: 'active',
+      messageIds: ['m_a'],
+      startedAt: new Date('2020-01-01T00:00:00.000Z'),
+      lastActivityAt: new Date('2020-01-02T00:00:00.000Z'),
+      endedAt: null,
+    });
+
+    const cnt = db
+      .prepare(
+        `SELECT COUNT(*) as n FROM session_messages sm
+         JOIN messages m ON m.id = sm.message_id
+         WHERE sm.session_id = ? AND m.session_id = ?`
+      )
+      .get(sessionId, sessionId) as { n: number };
+
+    expect(cnt.n).toBe(1);
+
+    storage.close();
+  });
+
   it('persists instructor materials when the instructor row was not created first', async () => {
     const storage = new DatabaseStorageAdapter({ type: 'sqlite', connectionString: ':memory:' });
 
