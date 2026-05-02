@@ -151,6 +151,12 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
       CREATE INDEX IF NOT EXISTS idx_session_messages_order ON session_messages(session_id, sequence_order);
     `);
+
+    // Demo identities for local/MVP flows (e.g. landing "Start Learning") without a separate signup step.
+    this.db.exec(`
+      INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES ('demo_instructor', 'Demo Instructor', NULL, 'friendly');
+      INSERT OR IGNORE INTO learners (id, name, level) VALUES ('demo_learner', 'Demo Learner', 'beginner');
+    `);
   }
 
   // Session operations
@@ -278,18 +284,26 @@ export class DatabaseStorageAdapter implements StorageAdapter {
 
     const placeholders = messageIds.map(() => '?').join(',');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
 
-    return rows.map(row => ({
-      id: row.id,
-      sessionId: row.session_id,
-      role: row.role as MessageRole,
-      content: row.content,
-      messageType: (row.message_type || 'question') as MessageType,
-      teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
-      timestamp: new Date(row.created_at),
-    }));
+    const byId = new Map(
+      rows.map(row => [
+        row.id,
+        {
+          id: row.id,
+          sessionId: row.session_id,
+          role: row.role as MessageRole,
+          content: row.content,
+          messageType: (row.message_type || 'question') as MessageType,
+          teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
+          timestamp: new Date(row.created_at),
+        } as Message,
+      ])
+    );
+
+    // Preserve session message order (prompt/history must match conversation sequence).
+    return messageIds.map(id => byId.get(id)).filter((m): m is Message => m !== undefined);
   }
 
   async saveMessage(message: Message): Promise<void> {
@@ -309,6 +323,10 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       message.teachingMetadata ? JSON.stringify(message.teachingMetadata) : null,
       message.timestamp.toISOString()
     );
+  }
+
+  async deleteMessage(messageId: string): Promise<void> {
+    this.db.prepare('DELETE FROM messages WHERE id = ?').run(messageId);
   }
 
   // Instructor profile operations
