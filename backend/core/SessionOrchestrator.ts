@@ -25,6 +25,9 @@ export class SessionOrchestrator {
   private llmAdapter: LLMAdapter;
   private storageAdapter: StorageAdapter;
 
+  /** Serialize processing per session so concurrent POST .../message calls cannot interleave load/update and drop message IDs. */
+  private readonly sessionProcessingTail = new Map<string, Promise<unknown>>();
+
   constructor(
     promptAssembler: PromptAssembler,
     responseValidator: ResponseValidator,
@@ -37,6 +40,13 @@ export class SessionOrchestrator {
     this.storageAdapter = storageAdapter;
   }
 
+  private runSerialized<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.sessionProcessingTail.get(sessionId) ?? Promise.resolve();
+    const next = prev.catch(() => {}).then(fn);
+    this.sessionProcessingTail.set(sessionId, next.catch(() => {}));
+    return next;
+  }
+
   /**
    * Process a learner message and generate instructor response
    * 
@@ -45,6 +55,13 @@ export class SessionOrchestrator {
    * @returns Instructor message content
    */
   async processLearnerMessage(
+    sessionId: string,
+    learnerMessageContent: string
+  ): Promise<string> {
+    return this.runSerialized(sessionId, () => this.processLearnerMessageImpl(sessionId, learnerMessageContent));
+  }
+
+  private async processLearnerMessageImpl(
     sessionId: string,
     learnerMessageContent: string
   ): Promise<string> {

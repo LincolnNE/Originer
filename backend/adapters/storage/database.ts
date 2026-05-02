@@ -29,6 +29,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (config.type === 'sqlite') {
       const dbPath = config.connectionString || ':memory:';
       this.db = new Database(dbPath);
+      // Enforce FK constraints (SQLite defaults to OFF); prevents silent orphans on bad writes.
+      this.db.pragma('foreign_keys = ON');
       this.initializeSchema();
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
@@ -181,27 +183,59 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveSession(session: Session): Promise<void> {
-    const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO sessions (
-        id, instructor_id, learner_id, instructor_profile_id,
-        subject, topic, learning_objective, session_state,
-        started_at, last_activity_at, ended_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    stmt.run(
-      session.id,
-      session.instructorId,
-      session.learnerId,
-      session.instructorProfileId,
-      session.subject,
-      session.topic,
-      session.learningObjective,
-      session.sessionState,
-      session.startedAt.toISOString(),
-      session.lastActivityAt.toISOString(),
-      session.endedAt?.toISOString() || null
-    );
+    // Never use INSERT OR REPLACE here: on SQLite it deletes the old sessions row and inserts
+    // a new one, which drops dependent session_messages rows (orphan message ids → loadMessages throws).
+    const exists = this.db.prepare('SELECT 1 FROM sessions WHERE id = ?').get(session.id);
+    if (exists) {
+      const updateStmt = this.db.prepare(`
+        UPDATE sessions SET
+          instructor_id = ?,
+          learner_id = ?,
+          instructor_profile_id = ?,
+          subject = ?,
+          topic = ?,
+          learning_objective = ?,
+          session_state = ?,
+          started_at = ?,
+          last_activity_at = ?,
+          ended_at = ?
+        WHERE id = ?
+      `);
+      updateStmt.run(
+        session.instructorId,
+        session.learnerId,
+        session.instructorProfileId,
+        session.subject,
+        session.topic,
+        session.learningObjective,
+        session.sessionState,
+        session.startedAt.toISOString(),
+        session.lastActivityAt.toISOString(),
+        session.endedAt?.toISOString() || null,
+        session.id
+      );
+    } else {
+      const insertStmt = this.db.prepare(`
+        INSERT INTO sessions (
+          id, instructor_id, learner_id, instructor_profile_id,
+          subject, topic, learning_objective, session_state,
+          started_at, last_activity_at, ended_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      insertStmt.run(
+        session.id,
+        session.instructorId,
+        session.learnerId,
+        session.instructorProfileId,
+        session.subject,
+        session.topic,
+        session.learningObjective,
+        session.sessionState,
+        session.startedAt.toISOString(),
+        session.lastActivityAt.toISOString(),
+        session.endedAt?.toISOString() || null
+      );
+    }
 
     // Save message IDs
     const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
