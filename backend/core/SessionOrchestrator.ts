@@ -42,7 +42,12 @@ export class SessionOrchestrator {
 
   private runSerialized<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
     const prev = this.sessionProcessingTail.get(sessionId) ?? Promise.resolve();
-    const next = prev.catch(() => {}).then(fn);
+    // Chain after prev fully settles (success or failure) without dropping rejections on `next`.
+    // The map tail may swallow errors so a later turn still runs; callers await `next` and see real errors.
+    const next = prev.then(
+      () => fn(),
+      () => fn()
+    );
     this.sessionProcessingTail.set(sessionId, next.catch(() => {}));
     return next;
   }
