@@ -174,6 +174,22 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       .run(learnerId, `Learner ${learnerId}`);
   }
 
+  /**
+   * session_messages FK-references messages.id. Ensure each id exists before junction inserts
+   * (INSERT OR IGNORE keeps existing rows if callers already persisted full message content).
+   */
+  private ensureMessageStubRows(sessionId: string, messageIds: string[]): void {
+    if (messageIds.length === 0) return;
+    const stmt = this.db.prepare(`
+      INSERT OR IGNORE INTO messages (
+        id, session_id, sender, role, content, message_type, teaching_metadata, created_at
+      ) VALUES (?, ?, 'system', 'learner', '', 'question', NULL, datetime('now'))
+    `);
+    for (const messageId of messageIds) {
+      stmt.run(messageId, sessionId);
+    }
+  }
+
   // Session operations
   async loadSession(sessionId: string): Promise<Session | null> {
     const sessionRow = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as any;
@@ -226,6 +242,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       session.endedAt?.toISOString() || null
     );
 
+    this.ensureMessageStubRows(session.id, session.messageIds);
+
     // Save message IDs
     const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
     deleteStmt.run(session.id);
@@ -261,6 +279,7 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (updates.messageIds !== undefined) {
       // Delete old message IDs
       this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
+      this.ensureMessageStubRows(sessionId, updates.messageIds);
       // Insert new message IDs
       const insertStmt = this.db.prepare(
         'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
