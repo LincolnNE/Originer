@@ -17,6 +17,15 @@ interface StartSessionRequest {
   learning_objective?: string;
 }
 
+/** Body shape used by the Next.js landing page and frontend API types */
+interface CreateSessionRequest {
+  instructorProfileId: string;
+  subject: string;
+  topic: string;
+  learningObjective: string;
+  learnerId?: string;
+}
+
 interface SendMessageRequest {
   message: string;
 }
@@ -29,6 +38,82 @@ export async function registerSessionRoutes(
   storageAdapter: StorageAdapter,
   sessionOrchestrator: SessionOrchestrator
 ): Promise<void> {
+  /**
+   * POST /sessions
+   * Create session (REST shape expected by frontend app/actions.ts and sessionsApi)
+   */
+  server.post<{ Body: CreateSessionRequest }>(
+    '/api/v1/sessions',
+    async (request: FastifyRequest<{ Body: CreateSessionRequest }>, reply: FastifyReply) => {
+      const body = request.body || ({} as CreateSessionRequest);
+      const {
+        instructorProfileId,
+        subject,
+        topic,
+        learningObjective,
+        learnerId,
+      } = body;
+
+      if (!instructorProfileId || !subject || !topic || !learningObjective) {
+        return reply.code(400).send({
+          success: false,
+          error: {
+            code: 'INVALID_REQUEST',
+            message:
+              'Missing required fields: instructorProfileId, subject, topic, learningObjective',
+          },
+        });
+      }
+
+      try {
+        const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const resolvedLearnerId = learnerId || process.env.DEFAULT_LEARNER_ID || 'anonymous';
+
+        const session = {
+          id: sessionId,
+          instructorId: instructorProfileId,
+          learnerId: resolvedLearnerId,
+          instructorProfileId,
+          subject,
+          topic,
+          learningObjective,
+          sessionState: 'active' as const,
+          messageIds: [],
+          startedAt: new Date(),
+          lastActivityAt: new Date(),
+          endedAt: null,
+        };
+
+        await storageAdapter.saveSession(session);
+
+        return reply.send({
+          success: true,
+          data: {
+            session: {
+              id: sessionId,
+              learnerId: resolvedLearnerId,
+              instructorProfileId,
+              subject,
+              topic,
+              learningObjective,
+              sessionState: 'active' as const,
+              startedAt: session.startedAt.toISOString(),
+            },
+          },
+        });
+      } catch (error: any) {
+        request.log.error(error);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: 'SESSION_CREATION_ERROR',
+            message: error.message || 'Failed to create session',
+          },
+        });
+      }
+    }
+  );
+
   /**
    * POST /sessions/start
    * Start a new teaching session
