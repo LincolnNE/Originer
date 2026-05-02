@@ -17,14 +17,37 @@ export const sessionsApi = {
    * Create a new session
    */
   async createSession(request: CreateSessionRequest): Promise<CreateSessionResponse> {
-    const response = await apiClient.post<ApiResponse<CreateSessionResponse>>(
-      '/api/v1/sessions',
-      request
-    );
+    const learnerId =
+      request.learnerId ||
+      `learner_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+    const response = await apiClient.post<
+      ApiResponse<CreateSessionResponse & { session_id?: string }>
+    >('/api/v1/sessions/start', {
+      instructor_id: request.instructorProfileId,
+      learner_id: learnerId,
+      subject: request.subject,
+      topic: request.topic,
+      learning_objective: request.learningObjective,
+    });
     if (!response.success || !response.data) {
       throw new Error(response.error?.message || 'Failed to create session');
     }
-    return response.data;
+    const data = response.data;
+    if (!data.session && data.session_id) {
+      return {
+        session: {
+          id: data.session_id,
+          learnerId,
+          instructorProfileId: request.instructorProfileId,
+          subject: request.subject,
+          topic: request.topic,
+          learningObjective: request.learningObjective,
+          sessionState: 'active',
+          startedAt: new Date().toISOString(),
+        },
+      };
+    }
+    return data;
   },
 
   /**
