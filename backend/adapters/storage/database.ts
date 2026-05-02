@@ -29,6 +29,7 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (config.type === 'sqlite') {
       const dbPath = config.connectionString || ':memory:';
       this.db = new Database(dbPath);
+      this.db.pragma('foreign_keys = ON');
       this.initializeSchema();
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
@@ -159,6 +160,24 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     `);
   }
 
+  /**
+   * Replace session_messages rows atomically. DELETE + INSERT must share one transaction:
+   * if INSERT fails (e.g. FK), SQLite rolls back the whole batch so we never leave an empty junction table.
+   */
+  private replaceSessionMessageOrder(sessionId: string, messageIds: string[]): void {
+    const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
+    const insertStmt = this.db.prepare(
+      'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
+    );
+    const rows = messageIds.map((id, idx) => ({ id, order: idx }));
+    this.db.transaction(() => {
+      deleteStmt.run(sessionId);
+      for (const msg of rows) {
+        insertStmt.run(sessionId, msg.id, msg.order);
+      }
+    })();
+  }
+
   // Session operations
   async loadSession(sessionId: string): Promise<Session | null> {
     const sessionRow = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as any;
@@ -209,20 +228,7 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       session.endedAt?.toISOString() || null
     );
 
-    // Save message IDs
-    const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
-    deleteStmt.run(session.id);
-
-    const insertStmt = this.db.prepare(
-      'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
-    );
-    const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-      for (const msg of messages) {
-        insertStmt.run(session.id, msg.id, msg.order);
-      }
-    });
-
-    insertMany(session.messageIds.map((id, idx) => ({ id, order: idx })));
+    this.replaceSessionMessageOrder(session.id, session.messageIds);
   }
 
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
@@ -242,18 +248,7 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       values.push(updates.endedAt?.toISOString() || null);
     }
     if (updates.messageIds !== undefined) {
-      // Delete old message IDs
-      this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
-      // Insert new message IDs
-      const insertStmt = this.db.prepare(
-        'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
-      );
-      const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-        for (const msg of messages) {
-          insertStmt.run(sessionId, msg.id, msg.order);
-        }
-      });
-      insertMany(updates.messageIds.map((id, idx) => ({ id, order: idx })));
+      this.replaceSessionMessageOrder(sessionId, updates.messageIds);
     }
 
     if (fields.length > 0) {
