@@ -29,6 +29,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (config.type === 'sqlite') {
       const dbPath = config.connectionString || ':memory:';
       this.db = new Database(dbPath);
+      // Honor FK constraints when enabled (e.g. PRAGMA foreign_keys=ON).
+      this.db.pragma('foreign_keys = ON');
       this.initializeSchema();
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
@@ -153,6 +155,41 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     `);
   }
 
+  /**
+   * Sessions reference instructors and learners. Insert stub rows so INSERT INTO sessions
+   * cannot violate FK constraints when foreign_keys is enabled.
+   */
+  private ensureParticipantRows(instructorId: string, learnerId: string): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO instructors (id, name, bio, tone)
+         VALUES (?, ?, NULL, 'friendly')`
+      )
+      .run(instructorId, `Instructor ${instructorId}`);
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO learners (id, name, level)
+         VALUES (?, ?, 'beginner')`
+      )
+      .run(learnerId, `Learner ${learnerId}`);
+  }
+
+  /**
+   * session_messages FK-references messages.id. Ensure each id exists before junction inserts
+   * (INSERT OR IGNORE keeps existing rows if callers already persisted full message content).
+   */
+  private ensureMessageStubRows(sessionId: string, messageIds: string[]): void {
+    if (messageIds.length === 0) return;
+    const stmt = this.db.prepare(`
+      INSERT OR IGNORE INTO messages (
+        id, session_id, sender, role, content, message_type, teaching_metadata, created_at
+      ) VALUES (?, ?, 'system', 'learner', '', 'question', NULL, datetime('now'))
+    `);
+    for (const messageId of messageIds) {
+      stmt.run(messageId, sessionId);
+    }
+  }
+
   // Session operations
   async loadSession(sessionId: string): Promise<Session | null> {
     const sessionRow = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as any;
@@ -181,6 +218,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveSession(session: Session): Promise<void> {
+    this.ensureParticipantRows(session.instructorId, session.learnerId);
+
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
@@ -202,6 +241,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       session.lastActivityAt.toISOString(),
       session.endedAt?.toISOString() || null
     );
+
+    this.ensureMessageStubRows(session.id, session.messageIds);
 
     // Save message IDs
     const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
@@ -238,6 +279,7 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (updates.messageIds !== undefined) {
       // Delete old message IDs
       this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
+      this.ensureMessageStubRows(sessionId, updates.messageIds);
       // Insert new message IDs
       const insertStmt = this.db.prepare(
         'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
