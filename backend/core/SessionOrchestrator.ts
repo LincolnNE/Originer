@@ -97,118 +97,138 @@ export class SessionOrchestrator {
       lastActivityAt: new Date(),
     });
 
-    // Step 3: Assemble prompt
-    // TODO: Assemble full prompt using PromptAssembler
-    const fullPrompt = await this.promptAssembler.assemblePrompt({
-      session: { ...session, messageIds: updatedMessageIds },
-      instructorProfile,
-      learnerMemory,
-      messageHistory,
-      currentMessage: learnerMessageContent,
-    });
+    let instructorMessage: Message | null = null;
+    let instructorMessagePersisted = false;
 
-    // Step 4: Call LLM
-    // TODO: Generate response using LLM adapter
-    let rawResponse: string;
     try {
-      const llmResponse = await this.llmAdapter.generate({
-        prompt: fullPrompt,
-        // TODO: Configure LLM parameters from instructor profile or settings
+      // Step 3: Assemble prompt
+      // TODO: Assemble full prompt using PromptAssembler
+      const fullPrompt = await this.promptAssembler.assemblePrompt({
+        session: { ...session, messageIds: updatedMessageIds },
+        instructorProfile,
+        learnerMemory,
+        messageHistory,
+        currentMessage: learnerMessageContent,
       });
-      rawResponse = llmResponse.content;
-    } catch (error) {
-      // TODO: Handle LLM errors
-      // TODO: Retry with exponential backoff if transient error
-      // TODO: Return safe fallback response if persistent error
-      throw error;
-    }
 
-    // Step 5: Validate response
-    // TODO: Validate response using ResponseValidator
-    let validationResult = this.responseValidator.validate({
-      response: rawResponse,
-      session: { ...session, messageIds: updatedMessageIds },
-      instructorProfile,
-      learnerMessage: learnerMessageContent,
-    });
+      // Step 4: Call LLM
+      // TODO: Generate response using LLM adapter
+      let rawResponse: string;
+      try {
+        const llmResponse = await this.llmAdapter.generate({
+          prompt: fullPrompt,
+          // TODO: Configure LLM parameters from instructor profile or settings
+        });
+        rawResponse = llmResponse.content;
+      } catch (error) {
+        // TODO: Handle LLM errors
+        // TODO: Retry with exponential backoff if transient error
+        // TODO: Return safe fallback response if persistent error
+        throw error;
+      }
 
-    // TODO: Handle validation failures with retry logic
-    if (!validationResult.isValid) {
-      if (validationResult.action === 'REGENERATE' || validationResult.action === 'RETRY') {
-        // TODO: Assemble fallback prompt
-        const fallbackPrompt = await this.promptAssembler.assembleFallbackPrompt(
-          fullPrompt,
-          validationResult.violations.map(v => v.message)
-        );
+      // Step 5: Validate response
+      // TODO: Validate response using ResponseValidator
+      let validationResult = this.responseValidator.validate({
+        response: rawResponse,
+        session: { ...session, messageIds: updatedMessageIds },
+        instructorProfile,
+        learnerMessage: learnerMessageContent,
+      });
 
-        // TODO: Retry LLM call with fallback prompt
-        try {
-          const llmResponse = await this.llmAdapter.generate({
-            prompt: fallbackPrompt,
-          });
-          rawResponse = llmResponse.content;
+      // TODO: Handle validation failures with retry logic
+      if (!validationResult.isValid) {
+        if (validationResult.action === 'REGENERATE' || validationResult.action === 'RETRY') {
+          // TODO: Assemble fallback prompt
+          const fallbackPrompt = await this.promptAssembler.assembleFallbackPrompt(
+            fullPrompt,
+            validationResult.violations.map(v => v.message)
+          );
 
-          // TODO: Re-validate fallback response
-          validationResult = this.responseValidator.validate({
-            response: rawResponse,
-            session: { ...session, messageIds: updatedMessageIds },
-            instructorProfile,
-            learnerMessage: learnerMessageContent,
-          });
-        } catch (error) {
-          // TODO: Handle retry errors
-          throw error;
+          // TODO: Retry LLM call with fallback prompt
+          try {
+            const llmResponse = await this.llmAdapter.generate({
+              prompt: fallbackPrompt,
+            });
+            rawResponse = llmResponse.content;
+
+            // TODO: Re-validate fallback response
+            validationResult = this.responseValidator.validate({
+              response: rawResponse,
+              session: { ...session, messageIds: updatedMessageIds },
+              instructorProfile,
+              learnerMessage: learnerMessageContent,
+            });
+          } catch (error) {
+            // TODO: Handle retry errors
+            throw error;
+          }
+        }
+
+        // TODO: If still invalid after retry, use safe fallback
+        if (!validationResult.isValid && validationResult.action === 'REJECT') {
+          rawResponse = this.generateSafeFallbackResponse(learnerMessageContent);
         }
       }
 
-      // TODO: If still invalid after retry, use safe fallback
-      if (!validationResult.isValid && validationResult.action === 'REJECT') {
-        rawResponse = this.generateSafeFallbackResponse(learnerMessageContent);
+      // Step 6: Create instructor message
+      // TODO: Create instructor message object
+      instructorMessage = {
+        id: this.generateMessageId(),
+        sessionId: session.id,
+        role: 'instructor',
+        content: rawResponse,
+        messageType: this.classifyInstructorMessage(rawResponse),
+        teachingMetadata: this.extractTeachingMetadata(rawResponse, learnerMessageContent),
+        timestamp: new Date(),
+      };
+
+      // TODO: Save instructor message
+      await this.storageAdapter.saveMessage(instructorMessage);
+      instructorMessagePersisted = true;
+
+      // TODO: Update session with instructor message ID
+      const finalMessageIds = [...updatedMessageIds, instructorMessage.id];
+      await this.storageAdapter.updateSession(sessionId, {
+        messageIds: finalMessageIds,
+        lastActivityAt: new Date(),
+      });
+
+      // Step 7: Update learner memory
+      // TODO: Analyze interaction for learning insights
+      const learningInsights = this.analyzeInteraction(
+        learnerMessage,
+        instructorMessage,
+        session
+      );
+
+      // TODO: Update learner memory
+      const updatedMemory = this.updateLearnerMemory(
+        learnerMemory,
+        learningInsights,
+        session
+      );
+
+      // TODO: Save updated learner memory
+      await this.storageAdapter.saveLearnerMemory(updatedMemory);
+
+      // Step 8: Return response
+      return instructorMessage.content;
+    } catch (error) {
+      if (instructorMessagePersisted && instructorMessage) {
+        await this.storageAdapter.deleteMessage(instructorMessage.id).catch(() => {
+          /* best-effort cleanup */
+        });
       }
+      await this.storageAdapter.deleteMessage(learnerMessage.id).catch(() => {
+        /* best-effort cleanup */
+      });
+      await this.storageAdapter.updateSession(sessionId, {
+        messageIds: session.messageIds,
+        lastActivityAt: session.lastActivityAt,
+      });
+      throw error;
     }
-
-    // Step 6: Create instructor message
-    // TODO: Create instructor message object
-    const instructorMessage: Message = {
-      id: this.generateMessageId(),
-      sessionId: session.id,
-      role: 'instructor',
-      content: rawResponse,
-      messageType: this.classifyInstructorMessage(rawResponse),
-      teachingMetadata: this.extractTeachingMetadata(rawResponse, learnerMessageContent),
-      timestamp: new Date(),
-    };
-
-    // TODO: Save instructor message
-    await this.storageAdapter.saveMessage(instructorMessage);
-
-    // TODO: Update session with instructor message ID
-    const finalMessageIds = [...updatedMessageIds, instructorMessage.id];
-    await this.storageAdapter.updateSession(sessionId, {
-      messageIds: finalMessageIds,
-      lastActivityAt: new Date(),
-    });
-
-    // Step 7: Update learner memory
-    // TODO: Analyze interaction for learning insights
-    const learningInsights = this.analyzeInteraction(
-      learnerMessage,
-      instructorMessage,
-      session
-    );
-
-    // TODO: Update learner memory
-    const updatedMemory = this.updateLearnerMemory(
-      learnerMemory,
-      learningInsights,
-      session
-    );
-
-    // TODO: Save updated learner memory
-    await this.storageAdapter.saveLearnerMemory(updatedMemory);
-
-    // Step 8: Return response
-    return rawResponse;
   }
 
   /**

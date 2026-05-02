@@ -311,6 +311,11 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     );
   }
 
+  async deleteMessage(messageId: string): Promise<void> {
+    this.db.prepare('DELETE FROM session_messages WHERE message_id = ?').run(messageId);
+    this.db.prepare('DELETE FROM messages WHERE id = ?').run(messageId);
+  }
+
   // Instructor profile operations
   async loadInstructorProfile(profileId: string): Promise<InstructorProfile | null> {
     // Try to load from instructor_profiles table first
