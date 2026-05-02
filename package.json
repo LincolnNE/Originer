@@ -7,7 +7,8 @@
     "build": "tsc",
     "dev": "ts-node src/server.ts",
     "start": "node dist/src/server.js",
-    "test": "jest"
+    "test": "jest",
+    "test:regression": "ts-node -P tests/tsconfig.regression.json tests/prompt-assembler-history-order.ts && bash tests/session-message-order-regression.sh"
   },
   "keywords": [],
   "author": "",
