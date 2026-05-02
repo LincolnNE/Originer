@@ -451,6 +451,20 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     stmt.run(data.id, data.name, data.level || 'beginner');
   }
 
+  /** Satisfy FK when session references an instructor id that has no row yet. */
+  async ensureInstructorExists(instructorId: string, name = 'Instructor'): Promise<void> {
+    const row = this.db.prepare('SELECT 1 FROM instructors WHERE id = ?').get(instructorId);
+    if (row) return;
+    await this.createInstructor({ id: instructorId, name, tone: 'friendly' });
+  }
+
+  /** Satisfy FK when session references a learner id that has no row yet. */
+  async ensureLearnerExists(learnerId: string, name = 'Learner'): Promise<void> {
+    const row = this.db.prepare('SELECT 1 FROM learners WHERE id = ?').get(learnerId);
+    if (row) return;
+    await this.createLearner({ id: learnerId, name, level: 'beginner' });
+  }
+
   async saveInstructorMaterial(data: {
     id: string;
     instructorId: string;
