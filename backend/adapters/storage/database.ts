@@ -254,9 +254,11 @@ export class DatabaseStorageAdapter implements StorageAdapter {
           }
         }
         if (hasSessionFieldUpdate) {
-          values.push(sessionId);
+          // Copy values + id into a fresh array so transaction retries (e.g. SQLITE_BUSY)
+          // cannot append sessionId multiple times to the same outer `values` buffer.
+          const updateValues = [...values, sessionId];
           const sql = `UPDATE sessions SET ${fields.join(', ')} WHERE id = ?`;
-          this.db.prepare(sql).run(...values);
+          this.db.prepare(sql).run(...updateValues);
         }
       });
 
