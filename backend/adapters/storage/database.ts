@@ -203,7 +203,21 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       session.endedAt?.toISOString() || null
     );
 
-    // Save message IDs
+    // Save message IDs (session_messages junction). When messageIds is empty, do not
+    // DELETE+reinsert nothing — that would wipe an existing transcript (e.g. preview
+    // calls saveSession again after messages were appended via updateSession). Merge
+    // from DB in that case. To clear all messages explicitly, use updateSession with
+    // messageIds: [].
+    let messageIdsToPersist = session.messageIds;
+    if (messageIdsToPersist.length === 0) {
+      const existingRows = this.db
+        .prepare(
+          'SELECT message_id FROM session_messages WHERE session_id = ? ORDER BY sequence_order'
+        )
+        .all(session.id) as Array<{ message_id: string }>;
+      messageIdsToPersist = existingRows.map(r => r.message_id);
+    }
+
     const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
     deleteStmt.run(session.id);
 
@@ -216,7 +230,7 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       }
     });
 
-    insertMany(session.messageIds.map((id, idx) => ({ id, order: idx })));
+    insertMany(messageIdsToPersist.map((id, idx) => ({ id, order: idx })));
   }
 
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
@@ -278,18 +292,26 @@ export class DatabaseStorageAdapter implements StorageAdapter {
 
     const placeholders = messageIds.map(() => '?').join(',');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
 
-    return rows.map(row => ({
-      id: row.id,
-      sessionId: row.session_id,
-      role: row.role as MessageRole,
-      content: row.content,
-      messageType: (row.message_type || 'question') as MessageType,
-      teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
-      timestamp: new Date(row.created_at),
-    }));
+    // Preserve session transcript order (messageIds order). ORDER BY created_at
+    // can reorder or interleave when timestamps collide or equal-resolution clocks
+    // reorder rows relative to the real conversation sequence.
+    const byId = new Map<string, any>(rows.map(row => [row.id as string, row]));
+
+    return messageIds
+      .map(id => byId.get(id))
+      .filter((row): row is NonNullable<typeof row> => row != null)
+      .map(row => ({
+        id: row.id,
+        sessionId: row.session_id,
+        role: row.role as MessageRole,
+        content: row.content,
+        messageType: (row.message_type || 'question') as MessageType,
+        teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
+        timestamp: new Date(row.created_at),
+      }));
   }
 
   async saveMessage(message: Message): Promise<void> {
