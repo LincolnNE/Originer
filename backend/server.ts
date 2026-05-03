@@ -37,7 +37,7 @@ declare global {
 /**
  * Create Express application with middleware
  */
-function createApp(
+export function createApp(
   sessionOrchestrator: SessionOrchestrator,
   storageAdapter: StorageAdapter
 ): Express {
@@ -66,22 +66,6 @@ function createApp(
       return res.sendStatus(200);
     }
     next();
-  });
-
-  // Middleware: Error handling
-  app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-    console.error(`[${req.context.requestId}] Error:`, err);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'INTERNAL_ERROR',
-        message: 'An internal error occurred',
-      },
-      meta: {
-        timestamp: req.context.timestamp.toISOString(),
-        requestId: req.context.requestId,
-      },
-    });
   });
 
   // Health check endpoint
@@ -236,6 +220,24 @@ function createApp(
     } catch (error) {
       next(error);
     }
+  });
+
+  // Error handling MUST be registered after all routes so `next(err)` from route handlers
+  // reaches this middleware (Express skips handlers above the failing route).
+  app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+    const ctx = req.context;
+    console.error(`[${ctx?.requestId ?? 'no-context'}] Error:`, err);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'An internal error occurred',
+      },
+      meta: {
+        timestamp: (ctx?.timestamp ?? new Date()).toISOString(),
+        requestId: ctx?.requestId ?? 'unknown',
+      },
+    });
   });
 
   return app;
