@@ -73,6 +73,31 @@ async function main() {
   assert.ok(prof, 'loadInstructorProfile must resolve after bootstrap');
   assert.strictEqual(prof.id, profileId);
 
+  // session_messages FK to messages: saveSession with non-empty messageIds must succeed
+  const msgSessionId = 'sess_with_msgs';
+  await db.ensureSessionParticipants(instructorId, learnerId, {
+    instructorProfileId: profileId,
+  });
+  await db.saveSession({
+    id: msgSessionId,
+    instructorId,
+    learnerId,
+    instructorProfileId: profileId,
+    subject: 'S',
+    topic: 'T',
+    learningObjective: 'L',
+    sessionState: 'active',
+    messageIds: ['msg_a', 'msg_b'],
+    startedAt: new Date(),
+    lastActivityAt: new Date(),
+    endedAt: null,
+  });
+  const junction = db.db
+    .prepare('SELECT message_id FROM session_messages WHERE session_id = ? ORDER BY sequence_order')
+    .all(msgSessionId);
+  assert.strictEqual(junction.length, 2);
+  assert.strictEqual(junction[0].message_id, 'msg_a');
+
   db.close();
   console.log('ensure-session-participants: ok');
 }
