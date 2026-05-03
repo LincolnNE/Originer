@@ -7,7 +7,8 @@
     "build": "tsc",
     "dev": "ts-node src/server.ts",
     "start": "node dist/src/server.js",
-    "test": "jest"
+    "test": "jest",
+    "test:storage": "node --require ts-node/register tests/database-storage-update-session.test.ts"
   },
   "keywords": [],
   "author": "",
