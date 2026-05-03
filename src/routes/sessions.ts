@@ -49,6 +49,18 @@ export async function registerSessionRoutes(
       }
 
       try {
+        // Ensure FK targets exist (SQLite may not enforce FKs unless enabled; still required for consistency and when FKs are on).
+        await storageAdapter.ensureInstructorExists({
+          id: instructor_id,
+          name: 'Instructor',
+          tone: 'friendly',
+        });
+        await storageAdapter.ensureLearnerExists({
+          id: learner_id,
+          name: 'Learner',
+          level: 'beginner',
+        });
+
         const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         
         const session = {
