@@ -225,6 +225,10 @@ export async function registerInstructorRoutes(
           endedAt: null,
         };
 
+        await storageAdapter.createLearner({
+          id: tempLearnerId,
+          name: 'Preview',
+        });
         await storageAdapter.saveSession(tempSession);
 
         // Generate response
