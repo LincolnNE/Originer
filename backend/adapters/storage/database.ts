@@ -208,42 +208,58 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveSession(session: Session): Promise<void> {
-    const stmt = this.db.prepare(`
+    const insertInstructorOrIgnore = this.db.prepare(
+      `INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, ?, ?)`
+    );
+    const insertLearnerOrIgnore = this.db.prepare(
+      `INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)`
+    );
+    const insertSession = this.db.prepare(`
       INSERT OR REPLACE INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
         subject, topic, learning_objective, session_state,
         started_at, last_activity_at, ended_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-
-    stmt.run(
-      session.id,
-      session.instructorId,
-      session.learnerId,
-      session.instructorProfileId,
-      session.subject,
-      session.topic,
-      session.learningObjective,
-      session.sessionState,
-      session.startedAt.toISOString(),
-      session.lastActivityAt.toISOString(),
-      session.endedAt?.toISOString() || null
+    const deleteSessionMessages = this.db.prepare(
+      'DELETE FROM session_messages WHERE session_id = ?'
     );
-
-    // Save message IDs
-    const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
-    deleteStmt.run(session.id);
-
-    const insertStmt = this.db.prepare(
+    const insertSessionMessage = this.db.prepare(
       'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
     );
-    const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-      for (const msg of messages) {
-        insertStmt.run(session.id, msg.id, msg.order);
+
+    const persist = this.db.transaction((s: Session) => {
+      insertInstructorOrIgnore.run(
+        s.instructorId,
+        s.instructorId === DatabaseStorageAdapter.DEFAULT_INSTRUCTOR_ID
+          ? 'Default Instructor'
+          : 'Instructor',
+        null,
+        'friendly'
+      );
+      insertLearnerOrIgnore.run(s.learnerId, 'Learner', 'beginner');
+
+      insertSession.run(
+        s.id,
+        s.instructorId,
+        s.learnerId,
+        s.instructorProfileId,
+        s.subject,
+        s.topic,
+        s.learningObjective,
+        s.sessionState,
+        s.startedAt.toISOString(),
+        s.lastActivityAt.toISOString(),
+        s.endedAt?.toISOString() || null
+      );
+
+      deleteSessionMessages.run(s.id);
+      for (let idx = 0; idx < s.messageIds.length; idx++) {
+        insertSessionMessage.run(s.id, s.messageIds[idx], idx);
       }
     });
 
-    insertMany(session.messageIds.map((id, idx) => ({ id, order: idx })));
+    persist(session);
   }
 
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
