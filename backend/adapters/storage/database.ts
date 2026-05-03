@@ -24,6 +24,8 @@ export interface DatabaseConfig {
 
 export class DatabaseStorageAdapter implements StorageAdapter {
   private db: Database.Database;
+  /** Ensures instructors row exists for sessions.instructor_id FK. */
+  private ensureInstructorRow!: Database.Statement;
   /** Ensures learners row exists for FK targets (sessions.learner_id, learner_memory.learner_id). */
   private ensureLearnerRow!: Database.Statement;
 
@@ -34,10 +36,13 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       // SQLite disables FK enforcement unless explicitly enabled; without this,
       // sessions can reference missing instructors and fail later on message insert.
       this.db.pragma('foreign_keys = ON');
+      this.initializeSchema();
+      this.ensureInstructorRow = this.db.prepare(`
+        INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, NULL, 'friendly')
+      `);
       this.ensureLearnerRow = this.db.prepare(`
         INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)
       `);
-      this.initializeSchema();
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
     }
@@ -218,6 +223,7 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     );
 
     const persist = this.db.transaction((s: Session) => {
+      this.ensureInstructorRow.run(s.instructorId, 'Instructor');
       this.ensureLearnerRow.run(s.learnerId, 'Learner', 'beginner');
       stmt.run(
         s.id,
