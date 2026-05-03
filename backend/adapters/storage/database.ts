@@ -182,6 +182,24 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     };
   }
 
+  /**
+   * Replace session_messages ordering in one transaction so we never commit a DELETE
+   * without the matching INSERTs (would wipe chat history index on partial failure).
+   */
+  private replaceSessionMessageOrder(sessionId: string, messageIds: string[]): void {
+    const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
+    const insertStmt = this.db.prepare(
+      'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
+    );
+    const replace = this.db.transaction((ids: string[]) => {
+      deleteStmt.run(sessionId);
+      for (let i = 0; i < ids.length; i++) {
+        insertStmt.run(sessionId, ids[i], i);
+      }
+    });
+    replace(messageIds);
+  }
+
   async saveSession(session: Session): Promise<void> {
     // Never use INSERT OR REPLACE here: on SQLite it deletes the old sessions row and inserts
     // a new one, which drops dependent session_messages rows (orphan message ids → loadMessages throws).
@@ -237,20 +255,9 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       );
     }
 
-    // Save message IDs
-    const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
-    deleteStmt.run(session.id);
-
-    const insertStmt = this.db.prepare(
-      'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
-    );
-    const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-      for (const msg of messages) {
-        insertStmt.run(session.id, msg.id, msg.order);
-      }
-    });
-
-    insertMany(session.messageIds.map((id, idx) => ({ id, order: idx })));
+    // Replace junction rows atomically: DELETE outside a shared transaction with INSERT could
+    // commit an empty session_messages if inserts fail (data loss / broken history).
+    this.replaceSessionMessageOrder(session.id, session.messageIds);
   }
 
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
@@ -270,18 +277,7 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       values.push(updates.endedAt?.toISOString() || null);
     }
     if (updates.messageIds !== undefined) {
-      // Delete old message IDs
-      this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
-      // Insert new message IDs
-      const insertStmt = this.db.prepare(
-        'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
-      );
-      const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-        for (const msg of messages) {
-          insertStmt.run(sessionId, msg.id, msg.order);
-        }
-      });
-      insertMany(updates.messageIds.map((id, idx) => ({ id, order: idx })));
+      this.replaceSessionMessageOrder(sessionId, updates.messageIds);
     }
 
     if (fields.length > 0) {
