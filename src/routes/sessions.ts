@@ -8,10 +8,11 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { StorageAdapter } from '../../backend/adapters/storage/types';
 import { SessionOrchestrator } from '../../backend/core/SessionOrchestrator';
+import { DatabaseStorageAdapter } from '../../backend/adapters/storage/database';
 
 interface StartSessionRequest {
-  instructor_id: string;
-  learner_id: string;
+  instructor_id?: string;
+  learner_id?: string;
   subject?: string;
   topic?: string;
   learning_objective?: string;
@@ -38,24 +39,18 @@ export async function registerSessionRoutes(
     async (request: FastifyRequest<{ Body: StartSessionRequest }>, reply: FastifyReply) => {
       const { instructor_id, learner_id, subject, topic, learning_objective } = request.body;
 
-      if (!instructor_id || !learner_id) {
-        return reply.code(400).send({
-          success: false,
-          error: {
-            code: 'INVALID_REQUEST',
-            message: 'Missing required fields: instructor_id, learner_id',
-          },
-        });
-      }
-
       try {
         const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
+
+        const resolvedInstructorId =
+          instructor_id || DatabaseStorageAdapter.DEFAULT_INSTRUCTOR_ID;
+        const resolvedLearnerId = learner_id || DatabaseStorageAdapter.DEFAULT_LEARNER_ID;
+
         const session = {
           id: sessionId,
-          instructorId: instructor_id,
-          learnerId: learner_id,
-          instructorProfileId: instructor_id, // Use instructor_id as profile_id for MVP
+          instructorId: resolvedInstructorId,
+          learnerId: resolvedLearnerId,
+          instructorProfileId: resolvedInstructorId, // Use instructor_id as profile_id for MVP
           subject: subject || 'General',
           topic: topic || 'Introduction',
           learningObjective: learning_objective || 'Learn and practice',
