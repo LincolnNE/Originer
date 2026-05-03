@@ -13,6 +13,12 @@ export interface StorageAdapter {
   saveSession(session: Session): Promise<void>;
   updateSession(sessionId: string, updates: Partial<Session>): Promise<void>;
 
+  /**
+   * Ensure instructor and learner rows exist so session/message writes satisfy FKs
+   * and orchestration can load profiles (MVP: auto-create minimal rows when missing).
+   */
+  ensureParticipantRowsForSession(instructorId: string, learnerId: string): Promise<void>;
+
   // Message operations
   loadMessage(messageId: string): Promise<Message | null>;
   loadMessages(messageIds: string[]): Promise<Message[]>;
