@@ -57,7 +57,9 @@ export async function registerSessionRoutes(
     endedAt: null;
   }): Promise<void> {
     if (isDatabaseAdapter(storageAdapter)) {
-      await storageAdapter.ensureSessionParticipants(session.instructorId, session.learnerId);
+      await storageAdapter.ensureSessionParticipants(session.instructorId, session.learnerId, {
+        instructorProfileId: session.instructorProfileId,
+      });
     }
     await storageAdapter.saveSession(session);
   }
