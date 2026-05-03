@@ -225,6 +225,7 @@ export async function registerInstructorRoutes(
           endedAt: null,
         };
 
+        await storageAdapter.ensureParticipantRowsForSession(id, tempLearnerId);
         await storageAdapter.saveSession(tempSession);
 
         // Generate response

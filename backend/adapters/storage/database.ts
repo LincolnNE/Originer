@@ -153,6 +153,31 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     `);
   }
 
+  async ensureParticipantRowsForSession(instructorId: string, learnerId: string): Promise<void> {
+    const instructorExists = this.db
+      .prepare('SELECT 1 FROM instructors WHERE id = ?')
+      .get(instructorId) as { 1: number } | undefined;
+    if (!instructorExists) {
+      await this.createInstructor({
+        id: instructorId,
+        name: 'Default Instructor',
+        bio: 'Auto-created for session',
+        tone: 'friendly',
+      });
+    }
+
+    const learnerExists = this.db
+      .prepare('SELECT 1 FROM learners WHERE id = ?')
+      .get(learnerId) as { 1: number } | undefined;
+    if (!learnerExists) {
+      await this.createLearner({
+        id: learnerId,
+        name: 'Learner',
+        level: 'beginner',
+      });
+    }
+  }
+
   // Session operations
   async loadSession(sessionId: string): Promise<Session | null> {
     const sessionRow = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as any;
@@ -278,8 +303,13 @@ export class DatabaseStorageAdapter implements StorageAdapter {
 
     const placeholders = messageIds.map(() => '?').join(',');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
+
+    // Preserve session order by explicit index. Do not use substring search on a joined
+    // id list — ids like "msg_1" and "msg_10" would confuse instr() and corrupt order.
+    const order = new Map(messageIds.map((id, idx) => [id, idx]));
+    rows.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
 
     return rows.map(row => ({
       id: row.id,
