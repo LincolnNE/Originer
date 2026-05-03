@@ -214,12 +214,25 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     const insertLearnerOrIgnore = this.db.prepare(
       `INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)`
     );
+    // Use UPSERT, not INSERT OR REPLACE: REPLACE deletes the row first, which fails
+    // under foreign_keys=ON when session_messages still reference this session.
     const insertSession = this.db.prepare(`
-      INSERT OR REPLACE INTO sessions (
+      INSERT INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
         subject, topic, learning_objective, session_state,
         started_at, last_activity_at, ended_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        instructor_id = excluded.instructor_id,
+        learner_id = excluded.learner_id,
+        instructor_profile_id = excluded.instructor_profile_id,
+        subject = excluded.subject,
+        topic = excluded.topic,
+        learning_objective = excluded.learning_objective,
+        session_state = excluded.session_state,
+        started_at = excluded.started_at,
+        last_activity_at = excluded.last_activity_at,
+        ended_at = excluded.ended_at
     `);
     const deleteSessionMessages = this.db.prepare(
       'DELETE FROM session_messages WHERE session_id = ?'

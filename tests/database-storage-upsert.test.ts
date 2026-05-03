@@ -72,3 +72,56 @@ test('createLearner upserts over placeholder row from saveSession', async () => 
   assert.equal(row.name, 'Sam Student');
   assert.equal(row.level, 'intermediate');
 });
+
+test('saveSession succeeds when session_messages already reference the session (no REPLACE delete)', async () => {
+  const db = new DatabaseStorageAdapter({ type: 'sqlite', connectionString: ':memory:' });
+  const sqlite = sqliteHandle(db);
+
+  await db.saveSession({
+    id: 'sess_with_msgs',
+    instructorId: 'inst_y',
+    learnerId: 'learn_y',
+    instructorProfileId: 'inst_y',
+    subject: 'S',
+    topic: 'T',
+    learningObjective: 'L',
+    sessionState: 'active',
+    messageIds: [],
+    startedAt: new Date(),
+    lastActivityAt: new Date(),
+    endedAt: null,
+  });
+
+  // Simulate message exchange: rows exist that FK-reference this session.
+  sqlite
+    .prepare(
+      `INSERT INTO messages (id, session_id, sender, role, content, message_type, teaching_metadata, created_at)
+       VALUES (?, ?, 'ai', 'instructor', 'hello', 'question', NULL, ?)`
+    )
+    .run('msg_one', 'sess_with_msgs', new Date().toISOString());
+  sqlite
+    .prepare(
+      'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
+    )
+    .run('sess_with_msgs', 'msg_one', 0);
+
+  const later = new Date();
+  await db.saveSession({
+    id: 'sess_with_msgs',
+    instructorId: 'inst_y',
+    learnerId: 'learn_y',
+    instructorProfileId: 'inst_y',
+    subject: 'S',
+    topic: 'T',
+    learningObjective: 'L',
+    sessionState: 'active',
+    messageIds: ['msg_one'],
+    startedAt: new Date(),
+    lastActivityAt: later,
+    endedAt: null,
+  });
+
+  const loaded = await db.loadSession('sess_with_msgs');
+  assert.ok(loaded);
+  assert.deepEqual(loaded!.messageIds, ['msg_one']);
+});
