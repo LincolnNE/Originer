@@ -14,6 +14,7 @@ import { Session } from '../../backend/core/types';
 interface CreateSessionBody {
   instructor_id?: string;
   learner_id?: string;
+  learnerId?: string;
   instructorProfileId?: string;
   subject?: string;
   topic?: string;
@@ -26,7 +27,10 @@ interface SendMessageRequest {
 }
 
 const DEFAULT_INSTRUCTOR_ID = 'default';
-const ANONYMOUS_LEARNER_ID = 'anonymous';
+
+function newAnonymousLearnerId(): string {
+  return `anon_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+}
 
 function resolveCreateSessionFields(body: CreateSessionBody): {
   instructorId: string;
@@ -39,7 +43,10 @@ function resolveCreateSessionFields(body: CreateSessionBody): {
     body.instructor_id?.trim() ||
     body.instructorProfileId?.trim() ||
     DEFAULT_INSTRUCTOR_ID;
-  const learnerId = body.learner_id?.trim() || ANONYMOUS_LEARNER_ID;
+  const explicitLearnerId =
+    body.learner_id?.trim() || body.learnerId?.trim() || undefined;
+  // One shared placeholder id would merge learner_memory across all anonymous sessions.
+  const learnerId = explicitLearnerId || newAnonymousLearnerId();
   const subject = body.subject?.trim() || 'General';
   const topic = body.topic?.trim() || 'Introduction';
   const learningObjective =
