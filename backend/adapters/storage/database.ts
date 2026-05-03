@@ -29,6 +29,8 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (config.type === 'sqlite') {
       const dbPath = config.connectionString || ':memory:';
       this.db = new Database(dbPath);
+      // SQLite disables foreign keys by default; enforce them for data integrity.
+      this.db.pragma('foreign_keys = ON');
       this.initializeSchema();
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
@@ -440,6 +442,58 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       INSERT INTO learners (id, name, level) VALUES (?, ?, ?)
     `);
     stmt.run(data.id, data.name, data.level || 'beginner');
+  }
+
+  private async ensureInstructorRowExists(
+    instructorId: string,
+    displayName: string
+  ): Promise<void> {
+    const inst = this.db.prepare('SELECT id FROM instructors WHERE id = ?').get(instructorId) as
+      | { id: string }
+      | undefined;
+    if (!inst) {
+      await this.createInstructor({
+        id: instructorId,
+        name: displayName,
+        tone: 'friendly',
+      });
+    }
+  }
+
+  /**
+   * Ensure instructor and learner rows exist so session INSERT satisfies FK constraints.
+   * When instructorProfileId differs from instructorId, both must exist in instructors
+   * because loadInstructorProfile resolves by profile id and sessions store that FK target.
+   */
+  async ensureSessionParticipants(
+    instructorId: string,
+    learnerId: string,
+    options?: {
+      instructorName?: string;
+      learnerName?: string;
+      instructorProfileId?: string;
+    }
+  ): Promise<void> {
+    await this.ensureInstructorRowExists(
+      instructorId,
+      options?.instructorName ?? `Instructor ${instructorId}`
+    );
+
+    const profileId = options?.instructorProfileId;
+    if (profileId && profileId !== instructorId) {
+      await this.ensureInstructorRowExists(profileId, `Instructor ${profileId}`);
+    }
+
+    const learner = this.db.prepare('SELECT id FROM learners WHERE id = ?').get(learnerId) as
+      | { id: string }
+      | undefined;
+    if (!learner) {
+      await this.createLearner({
+        id: learnerId,
+        name: options?.learnerName ?? 'Anonymous learner',
+        level: 'beginner',
+      });
+    }
   }
 
   async saveInstructorMaterial(data: {
