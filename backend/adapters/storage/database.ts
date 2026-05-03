@@ -442,6 +442,37 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     stmt.run(data.id, data.name, data.level || 'beginner');
   }
 
+  /**
+   * Ensure instructor and learner rows exist so session INSERT satisfies FK constraints.
+   */
+  async ensureSessionParticipants(
+    instructorId: string,
+    learnerId: string,
+    options?: { instructorName?: string; learnerName?: string }
+  ): Promise<void> {
+    const inst = this.db.prepare('SELECT id FROM instructors WHERE id = ?').get(instructorId) as
+      | { id: string }
+      | undefined;
+    if (!inst) {
+      await this.createInstructor({
+        id: instructorId,
+        name: options?.instructorName ?? `Instructor ${instructorId}`,
+        tone: 'friendly',
+      });
+    }
+
+    const learner = this.db.prepare('SELECT id FROM learners WHERE id = ?').get(learnerId) as
+      | { id: string }
+      | undefined;
+    if (!learner) {
+      await this.createLearner({
+        id: learnerId,
+        name: options?.learnerName ?? 'Anonymous learner',
+        level: 'beginner',
+      });
+    }
+  }
+
   async saveInstructorMaterial(data: {
     id: string;
     instructorId: string;

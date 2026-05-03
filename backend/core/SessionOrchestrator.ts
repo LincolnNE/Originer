@@ -64,11 +64,20 @@ export class SessionOrchestrator {
     }
 
     // TODO: Load learner memory
-    const learnerMemory = await this.storageAdapter.loadLearnerMemory(
+    let learnerMemory = await this.storageAdapter.loadLearnerMemory(
       session.learnerId
     );
     if (!learnerMemory) {
-      throw new Error(`Learner memory not found: ${session.learnerId}`);
+      learnerMemory = {
+        learnerId: session.learnerId,
+        learnedConcepts: [],
+        misconceptions: [],
+        strengths: [],
+        weaknesses: [],
+        progressMarkers: [],
+        sessionSummaries: [],
+        lastUpdated: new Date(),
+      };
     }
 
     // TODO: Load message history
