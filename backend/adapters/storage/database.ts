@@ -470,6 +470,10 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }): Promise<void> {
     const stmt = this.db.prepare(`
       INSERT INTO instructors (id, name, bio, tone) VALUES (?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        bio = excluded.bio,
+        tone = excluded.tone
     `);
     stmt.run(data.id, data.name, data.bio || null, data.tone || 'friendly');
   }
@@ -481,6 +485,9 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }): Promise<void> {
     const stmt = this.db.prepare(`
       INSERT INTO learners (id, name, level) VALUES (?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        level = excluded.level
     `);
     stmt.run(data.id, data.name, data.level || 'beginner');
   }
