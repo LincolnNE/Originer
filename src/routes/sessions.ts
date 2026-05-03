@@ -18,6 +18,15 @@ interface StartSessionRequest {
   learning_objective?: string;
 }
 
+/** Body from frontend api client (camelCase, matches CreateSessionRequest). */
+interface CreateSessionBody {
+  learnerId?: string;
+  instructorProfileId?: string;
+  subject?: string;
+  topic?: string;
+  learningObjective?: string;
+}
+
 interface SendMessageRequest {
   message: string;
 }
@@ -67,6 +76,75 @@ export async function registerSessionRoutes(
           success: true,
           data: {
             session_id: sessionId,
+          },
+        });
+      } catch (error: any) {
+        request.log.error(error);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: 'SESSION_CREATION_ERROR',
+            message: error.message || 'Failed to create session',
+          },
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /sessions
+   * Create session (camelCase body) — used by frontend sessionsApi.createSession / useSession.
+   * Mirrors POST /sessions/start but matches documented path and response shape.
+   */
+  server.post<{ Body: CreateSessionBody }>(
+    '/api/v1/sessions',
+    async (request: FastifyRequest<{ Body: CreateSessionBody }>, reply: FastifyReply) => {
+      const {
+        learnerId,
+        instructorProfileId,
+        subject,
+        topic,
+        learningObjective,
+      } = request.body || {};
+
+      try {
+        const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        const resolvedInstructorId =
+          instructorProfileId || DatabaseStorageAdapter.DEFAULT_INSTRUCTOR_ID;
+        const resolvedLearnerId = learnerId || DatabaseStorageAdapter.DEFAULT_LEARNER_ID;
+        const now = new Date();
+
+        const session = {
+          id: sessionId,
+          instructorId: resolvedInstructorId,
+          learnerId: resolvedLearnerId,
+          instructorProfileId: resolvedInstructorId,
+          subject: subject || 'General',
+          topic: topic || 'Introduction',
+          learningObjective: learningObjective || 'Learn and practice',
+          sessionState: 'active' as const,
+          messageIds: [],
+          startedAt: now,
+          lastActivityAt: now,
+          endedAt: null,
+        };
+
+        await storageAdapter.saveSession(session);
+
+        return reply.send({
+          success: true,
+          data: {
+            session: {
+              id: session.id,
+              learnerId: session.learnerId,
+              instructorProfileId: session.instructorProfileId,
+              subject: session.subject,
+              topic: session.topic,
+              learningObjective: session.learningObjective,
+              sessionState: session.sessionState,
+              startedAt: session.startedAt.toISOString(),
+            },
           },
         });
       } catch (error: any) {
