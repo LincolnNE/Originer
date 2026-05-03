@@ -30,9 +30,35 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       const dbPath = config.connectionString || ':memory:';
       this.db = new Database(dbPath);
       this.initializeSchema();
+      this.ensureSeedDefaults();
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
     }
+  }
+
+  /**
+   * Ensure MVP default instructor/learner exist so session start and chat flows
+   * do not fail foreign-key constraints on a fresh database.
+   */
+  private ensureSeedDefaults(): void {
+    const instructorId = 'default';
+    const learnerId = 'anonymous-mvp';
+
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, ?, ?)`
+      )
+      .run(instructorId, 'Default Instructor', null, 'friendly');
+
+    this.db
+      .prepare(`INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)`)
+      .run(learnerId, 'Anonymous learner', 'beginner');
+
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO instructor_profiles (instructor_id) VALUES (?)`
+      )
+      .run(instructorId);
   }
 
   /**

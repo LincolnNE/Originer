@@ -4,8 +4,10 @@ import { redirect } from 'next/navigation';
 
 export async function startSession() {
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
-  const apiUrl = apiBaseUrl ? `${apiBaseUrl}/api/v1/sessions` : '/api/v1/sessions';
-  
+  const apiUrl = apiBaseUrl
+    ? `${apiBaseUrl}/api/v1/sessions/start`
+    : '/api/v1/sessions/start';
+
   try {
     const response = await fetch(apiUrl, {
       method: 'POST',
@@ -13,10 +15,11 @@ export async function startSession() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        instructorProfileId: 'default',
+        instructor_id: 'default',
+        learner_id: 'anonymous-mvp',
         subject: 'General',
         topic: 'Introduction',
-        learningObjective: 'Get started with learning',
+        learning_objective: 'Get started with learning',
       }),
     });
 

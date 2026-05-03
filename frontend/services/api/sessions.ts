@@ -11,20 +11,28 @@ import {
   GetSessionResponse,
   ApiResponse,
 } from '../../types/api';
+import { toCreateSessionResponse } from './sessionStartResponse';
+
+export { toCreateSessionResponse } from './sessionStartResponse';
 
 export const sessionsApi = {
   /**
    * Create a new session
    */
   async createSession(request: CreateSessionRequest): Promise<CreateSessionResponse> {
-    const response = await apiClient.post<ApiResponse<CreateSessionResponse>>(
-      '/api/v1/sessions',
-      request
-    );
+    const response = await apiClient.post<
+      ApiResponse<CreateSessionResponse & { session_id?: string }>
+    >('/api/v1/sessions/start', {
+      instructor_id: request.instructorProfileId,
+      learner_id: request.learnerId ?? 'anonymous-mvp',
+      subject: request.subject,
+      topic: request.topic,
+      learning_objective: request.learningObjective,
+    });
     if (!response.success || !response.data) {
       throw new Error(response.error?.message || 'Failed to create session');
     }
-    return response.data;
+    return toCreateSessionResponse(response.data);
   },
 
   /**
