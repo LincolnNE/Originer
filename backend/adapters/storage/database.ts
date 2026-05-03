@@ -24,12 +24,25 @@ export interface DatabaseConfig {
 
 export class DatabaseStorageAdapter implements StorageAdapter {
   private db: Database.Database;
+  /** Ensures instructors row exists for sessions.instructor_id FK. */
+  private ensureInstructorRow!: Database.Statement;
+  /** Ensures learners row exists for FK targets (sessions.learner_id, learner_memory.learner_id). */
+  private ensureLearnerRow!: Database.Statement;
 
   constructor(config: DatabaseConfig) {
     if (config.type === 'sqlite') {
       const dbPath = config.connectionString || ':memory:';
       this.db = new Database(dbPath);
+      // SQLite disables FK enforcement unless explicitly enabled; without this,
+      // sessions can reference missing instructors and fail later on message insert.
+      this.db.pragma('foreign_keys = ON');
       this.initializeSchema();
+      this.ensureInstructorRow = this.db.prepare(`
+        INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, NULL, 'friendly')
+      `);
+      this.ensureLearnerRow = this.db.prepare(`
+        INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)
+      `);
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
     }
@@ -151,6 +164,21 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
       CREATE INDEX IF NOT EXISTS idx_session_messages_order ON session_messages(session_id, sequence_order);
     `);
+
+    // MVP bootstrap: default instructor used by the landing page / demos
+    this.db.exec(`
+      INSERT OR IGNORE INTO instructors (id, name, bio, tone)
+      VALUES ('default', 'Default Instructor', NULL, 'friendly');
+      INSERT OR IGNORE INTO instructor_profiles (
+        instructor_id, explanation_style, analogy_patterns, forbidden_topics, curriculum_tree
+      ) VALUES (
+        'default',
+        '[]',
+        '{"style":"friendly"}',
+        '[]',
+        '{}'
+      );
+    `);
   }
 
   // Session operations
@@ -189,34 +217,34 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    stmt.run(
-      session.id,
-      session.instructorId,
-      session.learnerId,
-      session.instructorProfileId,
-      session.subject,
-      session.topic,
-      session.learningObjective,
-      session.sessionState,
-      session.startedAt.toISOString(),
-      session.lastActivityAt.toISOString(),
-      session.endedAt?.toISOString() || null
-    );
-
-    // Save message IDs
     const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
-    deleteStmt.run(session.id);
-
     const insertStmt = this.db.prepare(
       'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
     );
-    const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-      for (const msg of messages) {
-        insertStmt.run(session.id, msg.id, msg.order);
-      }
+
+    const persist = this.db.transaction((s: Session) => {
+      this.ensureInstructorRow.run(s.instructorId, 'Instructor');
+      this.ensureLearnerRow.run(s.learnerId, 'Learner', 'beginner');
+      stmt.run(
+        s.id,
+        s.instructorId,
+        s.learnerId,
+        s.instructorProfileId,
+        s.subject,
+        s.topic,
+        s.learningObjective,
+        s.sessionState,
+        s.startedAt.toISOString(),
+        s.lastActivityAt.toISOString(),
+        s.endedAt?.toISOString() || null
+      );
+      deleteStmt.run(s.id);
+      s.messageIds.forEach((id, idx) => {
+        insertStmt.run(s.id, id, idx);
+      });
     });
 
-    insertMany(session.messageIds.map((id, idx) => ({ id, order: idx })));
+    persist(session);
   }
 
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
@@ -236,18 +264,18 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       values.push(updates.endedAt?.toISOString() || null);
     }
     if (updates.messageIds !== undefined) {
-      // Delete old message IDs
-      this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
-      // Insert new message IDs
+      const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
       const insertStmt = this.db.prepare(
         'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
       );
-      const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-        for (const msg of messages) {
-          insertStmt.run(sessionId, msg.id, msg.order);
-        }
+      // Must be atomic: with FK enforcement, a failed insert after DELETE would wipe ordering.
+      const syncSessionMessages = this.db.transaction((sid: string, ids: string[]) => {
+        deleteStmt.run(sid);
+        ids.forEach((id, idx) => {
+          insertStmt.run(sid, id, idx);
+        });
       });
-      insertMany(updates.messageIds.map((id, idx) => ({ id, order: idx })));
+      syncSessionMessages(sessionId, updates.messageIds);
     }
 
     if (fields.length > 0) {
@@ -278,18 +306,22 @@ export class DatabaseStorageAdapter implements StorageAdapter {
 
     const placeholders = messageIds.map(() => '?').join(',');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
 
-    return rows.map(row => ({
-      id: row.id,
-      sessionId: row.session_id,
-      role: row.role as MessageRole,
-      content: row.content,
-      messageType: (row.message_type || 'question') as MessageType,
-      teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
-      timestamp: new Date(row.created_at),
-    }));
+    const byId = new Map(rows.map(row => [row.id as string, row]));
+    return messageIds
+      .map(id => byId.get(id))
+      .filter((row): row is NonNullable<typeof row> => row != null)
+      .map(row => ({
+        id: row.id,
+        sessionId: row.session_id,
+        role: row.role as MessageRole,
+        content: row.content,
+        messageType: (row.message_type || 'question') as MessageType,
+        teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
+        timestamp: new Date(row.created_at),
+      }));
   }
 
   async saveMessage(message: Message): Promise<void> {
@@ -409,13 +441,18 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       ) VALUES (?, ?, ?, ?, ?)
     `);
 
-    stmt.run(
-      memory.learnerId,
-      JSON.stringify(weakConcepts),
-      JSON.stringify(masteredConcepts),
-      2, // Default explanation depth
-      memory.lastUpdated.toISOString()
-    );
+    const persist = this.db.transaction(() => {
+      this.ensureLearnerRow.run(memory.learnerId, 'Learner', 'beginner');
+      stmt.run(
+        memory.learnerId,
+        JSON.stringify(weakConcepts),
+        JSON.stringify(masteredConcepts),
+        2, // Default explanation depth
+        memory.lastUpdated.toISOString()
+      );
+    });
+
+    persist();
   }
 
   // Additional helper methods for API endpoints
