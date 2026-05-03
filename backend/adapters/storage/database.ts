@@ -235,7 +235,9 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       fields.push('ended_at = ?');
       values.push(updates.endedAt?.toISOString() || null);
     }
+    let messageIdsUpdated = false;
     if (updates.messageIds !== undefined) {
+      messageIdsUpdated = true;
       // Delete old message IDs
       this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
       // Insert new message IDs
@@ -248,6 +250,14 @@ export class DatabaseStorageAdapter implements StorageAdapter {
         }
       });
       insertMany(updates.messageIds.map((id, idx) => ({ id, order: idx })));
+    }
+
+    // messageIds-only updates must still touch the sessions row; otherwise last_activity_at
+    // stays stale and callers that omit other fields persist a dangling session_messages journal.
+    if (messageIdsUpdated && fields.length === 0) {
+      this.db
+        .prepare(`UPDATE sessions SET last_activity_at = datetime('now') WHERE id = ?`)
+        .run(sessionId);
     }
 
     if (fields.length > 0) {
