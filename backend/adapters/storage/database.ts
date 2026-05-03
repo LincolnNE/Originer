@@ -185,6 +185,12 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     // One transaction so we never persist sessions without matching session_messages
     // (or wipe junction rows while leaving an updated sessions row) on failure.
     const txn = this.db.transaction(() => {
+      // Clear junction rows before touching `sessions`. INSERT OR REPLACE may delete
+      // the existing session row first; with foreign_keys=ON, children must be gone
+      // before the parent can be removed.
+      const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
+      deleteStmt.run(session.id);
+
       const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
@@ -206,9 +212,6 @@ export class DatabaseStorageAdapter implements StorageAdapter {
         session.lastActivityAt.toISOString(),
         session.endedAt?.toISOString() || null
       );
-
-      const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
-      deleteStmt.run(session.id);
 
       const insertStmt = this.db.prepare(
         'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'

@@ -1,7 +1,8 @@
 /**
- * saveSession rewrites sessions + session_messages; without a single transaction,
- * a failure after updating sessions could orphan or truncate junction data.
- * Foreign keys must be on so invalid message_ids fail the whole transaction.
+ * saveSession rewrites sessions + session_messages in one transaction.
+ * Junction rows must be deleted before INSERT OR REPLACE on sessions so
+ * foreign_keys=ON does not fail when replacing an existing session row.
+ * Invalid message_ids fail the whole transaction.
  */
 const path = require('path');
 const { DatabaseStorageAdapter } = require('../dist/backend/adapters/storage/database');
@@ -77,5 +78,65 @@ describe('DatabaseStorageAdapter.saveSession', () => {
     const loaded = await adapter.loadSession(sessionId);
     expect(loaded.subject).toBe('original');
     expect(loaded.messageIds).toEqual([]);
+  });
+
+  it('allows a second saveSession with the same id after messages exist (FK ordering)', async () => {
+    adapter = new DatabaseStorageAdapter({
+      type: 'sqlite',
+      connectionString: dbPath,
+    });
+
+    const sessionId = 'sess_resave';
+    const instId = 'inst_rs';
+    const learnerId = 'learner_rs';
+
+    await adapter.createInstructor({ id: instId, name: 'T' });
+    await adapter.createLearner({ id: learnerId, name: 'L' });
+
+    const startedAt = new Date('2026-04-01T00:00:00.000Z');
+    const activity = new Date('2026-04-01T01:00:00.000Z');
+
+    await adapter.saveSession({
+      id: sessionId,
+      instructorId: instId,
+      learnerId: learnerId,
+      instructorProfileId: instId,
+      subject: 'first',
+      topic: 'T',
+      learningObjective: 'L',
+      sessionState: 'active',
+      messageIds: [],
+      startedAt,
+      lastActivityAt: activity,
+      endedAt: null,
+    });
+
+    await adapter.saveMessage({
+      id: 'msg_rs_1',
+      sessionId,
+      role: 'learner',
+      content: 'hi',
+      messageType: 'question',
+      timestamp: activity,
+    });
+
+    await adapter.saveSession({
+      id: sessionId,
+      instructorId: instId,
+      learnerId: learnerId,
+      instructorProfileId: instId,
+      subject: 'second',
+      topic: 'T',
+      learningObjective: 'L',
+      sessionState: 'active',
+      messageIds: ['msg_rs_1'],
+      startedAt,
+      lastActivityAt: activity,
+      endedAt: null,
+    });
+
+    const loaded = await adapter.loadSession(sessionId);
+    expect(loaded.subject).toBe('second');
+    expect(loaded.messageIds).toEqual(['msg_rs_1']);
   });
 });
