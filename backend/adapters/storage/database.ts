@@ -24,6 +24,8 @@ export interface DatabaseConfig {
 
 export class DatabaseStorageAdapter implements StorageAdapter {
   private db: Database.Database;
+  /** Ensures learners row exists for FK targets (sessions.learner_id, learner_memory.learner_id). */
+  private ensureLearnerRow!: Database.Statement;
 
   constructor(config: DatabaseConfig) {
     if (config.type === 'sqlite') {
@@ -32,6 +34,9 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       // SQLite disables FK enforcement unless explicitly enabled; without this,
       // sessions can reference missing instructors and fail later on message insert.
       this.db.pragma('foreign_keys = ON');
+      this.ensureLearnerRow = this.db.prepare(`
+        INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)
+      `);
       this.initializeSchema();
     } else {
       throw new Error('PostgreSQL adapter not yet implemented');
@@ -199,9 +204,6 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async saveSession(session: Session): Promise<void> {
-    const ensureLearner = this.db.prepare(`
-      INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)
-    `);
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO sessions (
         id, instructor_id, learner_id, instructor_profile_id,
@@ -216,7 +218,7 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     );
 
     const persist = this.db.transaction((s: Session) => {
-      ensureLearner.run(s.learnerId, 'Learner', 'beginner');
+      this.ensureLearnerRow.run(s.learnerId, 'Learner', 'beginner');
       stmt.run(
         s.id,
         s.instructorId,
@@ -433,13 +435,18 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       ) VALUES (?, ?, ?, ?, ?)
     `);
 
-    stmt.run(
-      memory.learnerId,
-      JSON.stringify(weakConcepts),
-      JSON.stringify(masteredConcepts),
-      2, // Default explanation depth
-      memory.lastUpdated.toISOString()
-    );
+    const persist = this.db.transaction(() => {
+      this.ensureLearnerRow.run(memory.learnerId, 'Learner', 'beginner');
+      stmt.run(
+        memory.learnerId,
+        JSON.stringify(weakConcepts),
+        JSON.stringify(masteredConcepts),
+        2, // Default explanation depth
+        memory.lastUpdated.toISOString()
+      );
+    });
+
+    persist();
   }
 
   // Additional helper methods for API endpoints
