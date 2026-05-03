@@ -8,10 +8,11 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { StorageAdapter } from '../../backend/adapters/storage/types';
 import { SessionOrchestrator } from '../../backend/core/SessionOrchestrator';
+import type { Session } from '../../backend/core/types';
 
 interface StartSessionRequest {
-  instructor_id: string;
-  learner_id: string;
+  instructor_id?: string;
+  learner_id?: string;
   subject?: string;
   topic?: string;
   learning_objective?: string;
@@ -19,6 +20,28 @@ interface StartSessionRequest {
 
 interface SendMessageRequest {
   message: string;
+}
+
+const DEFAULT_INSTRUCTOR_ID = 'default';
+const DEFAULT_LEARNER_ID = 'anonymous-mvp';
+
+function sessionToApiPayload(session: Session) {
+  return {
+    id: session.id,
+    learnerId: session.learnerId,
+    instructorProfileId: session.instructorProfileId,
+    subject: session.subject,
+    topic: session.topic,
+    learningObjective: session.learningObjective,
+    sessionState: session.sessionState as
+      | 'active'
+      | 'paused'
+      | 'completed'
+      | 'abandoned',
+    startedAt: session.startedAt.toISOString(),
+    lastActivityAt: session.lastActivityAt.toISOString(),
+    endedAt: session.endedAt ? session.endedAt.toISOString() : null,
+  };
 }
 
 /**
@@ -36,17 +59,10 @@ export async function registerSessionRoutes(
   server.post<{ Body: StartSessionRequest }>(
     '/api/v1/sessions/start',
     async (request: FastifyRequest<{ Body: StartSessionRequest }>, reply: FastifyReply) => {
-      const { instructor_id, learner_id, subject, topic, learning_objective } = request.body;
-
-      if (!instructor_id || !learner_id) {
-        return reply.code(400).send({
-          success: false,
-          error: {
-            code: 'INVALID_REQUEST',
-            message: 'Missing required fields: instructor_id, learner_id',
-          },
-        });
-      }
+      const body = request.body || ({} as StartSessionRequest);
+      const instructor_id = body.instructor_id || DEFAULT_INSTRUCTOR_ID;
+      const learner_id = body.learner_id || DEFAULT_LEARNER_ID;
+      const { subject, topic, learning_objective } = body;
 
       try {
         const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -72,6 +88,7 @@ export async function registerSessionRoutes(
           success: true,
           data: {
             session_id: sessionId,
+            session: sessionToApiPayload(session),
           },
         });
       } catch (error: any) {
@@ -81,6 +98,46 @@ export async function registerSessionRoutes(
           error: {
             code: 'SESSION_CREATION_ERROR',
             message: error.message || 'Failed to create session',
+          },
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /sessions/:id
+   * Load session metadata (used by the lesson UI after navigation)
+   */
+  server.get<{ Params: { id: string } }>(
+    '/api/v1/sessions/:id',
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      const { id } = request.params;
+
+      try {
+        const session = await storageAdapter.loadSession(id);
+        if (!session) {
+          return reply.code(404).send({
+            success: false,
+            error: {
+              code: 'SESSION_NOT_FOUND',
+              message: `Session not found: ${id}`,
+            },
+          });
+        }
+
+        return reply.send({
+          success: true,
+          data: {
+            session: sessionToApiPayload(session),
+          },
+        });
+      } catch (error: any) {
+        request.log.error(error);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: 'SESSION_LOAD_ERROR',
+            message: error.message || 'Failed to load session',
           },
         });
       }
