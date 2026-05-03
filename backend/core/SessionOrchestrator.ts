@@ -35,13 +35,16 @@ export class SessionOrchestrator {
   private runSerialized<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
     const previous = this.sessionOpTail.get(sessionId) ?? Promise.resolve();
     const current = previous.then(() => work());
-    this.sessionOpTail.set(
-      sessionId,
-      current.then(
-        () => undefined,
-        () => undefined
-      )
+    const settled = current.then(
+      () => undefined,
+      () => undefined
     );
+    this.sessionOpTail.set(sessionId, settled);
+    settled.finally(() => {
+      if (this.sessionOpTail.get(sessionId) === settled) {
+        this.sessionOpTail.delete(sessionId);
+      }
+    });
     return current;
   }
 
