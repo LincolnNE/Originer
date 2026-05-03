@@ -2,11 +2,19 @@
 
 import { redirect } from 'next/navigation';
 
+/** Backend origin for server-side fetch (must be absolute — Node has no request origin). */
+function backendBaseUrl(): string {
+  const raw = (
+    process.env.NEXT_PUBLIC_API_URL ||
+    process.env.BACKEND_URL ||
+    ''
+  ).trim();
+  if (raw) return raw.replace(/\/$/, '');
+  return 'http://localhost:4094';
+}
+
 export async function startSession() {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
-  const apiUrl = apiBaseUrl
-    ? `${apiBaseUrl}/api/v1/sessions/start`
-    : '/api/v1/sessions/start';
+  const apiUrl = `${backendBaseUrl()}/api/v1/sessions/start`;
 
   try {
     const response = await fetch(apiUrl, {
