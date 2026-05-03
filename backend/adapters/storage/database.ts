@@ -220,41 +220,42 @@ export class DatabaseStorageAdapter implements StorageAdapter {
   }
 
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
-    const fields: string[] = [];
-    const values: any[] = [];
+    // Run all writes in one transaction so we never leave session_messages deleted
+    // while sessions row is stale (or vice versa) if a later statement fails.
+    const txn = this.db.transaction(() => {
+      const fields: string[] = [];
+      const values: any[] = [];
 
-    if (updates.sessionState !== undefined) {
-      fields.push('session_state = ?');
-      values.push(updates.sessionState);
-    }
-    if (updates.lastActivityAt !== undefined) {
-      fields.push('last_activity_at = ?');
-      values.push(updates.lastActivityAt.toISOString());
-    }
-    if (updates.endedAt !== undefined) {
-      fields.push('ended_at = ?');
-      values.push(updates.endedAt?.toISOString() || null);
-    }
-    if (updates.messageIds !== undefined) {
-      // Delete old message IDs
-      this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
-      // Insert new message IDs
-      const insertStmt = this.db.prepare(
-        'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
-      );
-      const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-        for (const msg of messages) {
-          insertStmt.run(sessionId, msg.id, msg.order);
+      if (updates.sessionState !== undefined) {
+        fields.push('session_state = ?');
+        values.push(updates.sessionState);
+      }
+      if (updates.lastActivityAt !== undefined) {
+        fields.push('last_activity_at = ?');
+        values.push(updates.lastActivityAt.toISOString());
+      }
+      if (updates.endedAt !== undefined) {
+        fields.push('ended_at = ?');
+        values.push(updates.endedAt?.toISOString() || null);
+      }
+      if (updates.messageIds !== undefined) {
+        this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
+        const insertStmt = this.db.prepare(
+          'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
+        );
+        for (let idx = 0; idx < updates.messageIds.length; idx++) {
+          insertStmt.run(sessionId, updates.messageIds[idx], idx);
         }
-      });
-      insertMany(updates.messageIds.map((id, idx) => ({ id, order: idx })));
-    }
+      }
 
-    if (fields.length > 0) {
-      values.push(sessionId);
-      const sql = `UPDATE sessions SET ${fields.join(', ')} WHERE id = ?`;
-      this.db.prepare(sql).run(...values);
-    }
+      if (fields.length > 0) {
+        values.push(sessionId);
+        const sql = `UPDATE sessions SET ${fields.join(', ')} WHERE id = ?`;
+        this.db.prepare(sql).run(...values);
+      }
+    });
+
+    txn();
   }
 
   // Message operations
