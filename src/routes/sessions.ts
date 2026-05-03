@@ -83,6 +83,57 @@ export async function registerSessionRoutes(
   );
 
   /**
+   * GET /sessions/:sessionId
+   * Load session for client-side lesson flow (SessionProvider / useSession).
+   */
+  server.get<{ Params: { sessionId: string } }>(
+    '/api/v1/sessions/:sessionId',
+    async (request: FastifyRequest<{ Params: { sessionId: string } }>, reply: FastifyReply) => {
+      const { sessionId } = request.params;
+
+      try {
+        const session = await storageAdapter.loadSession(sessionId);
+        if (!session) {
+          return reply.code(404).send({
+            success: false,
+            error: {
+              code: 'SESSION_NOT_FOUND',
+              message: `Session not found: ${sessionId}`,
+            },
+          });
+        }
+
+        return reply.send({
+          success: true,
+          data: {
+            session: {
+              id: session.id,
+              learnerId: session.learnerId,
+              instructorProfileId: session.instructorProfileId,
+              subject: session.subject,
+              topic: session.topic,
+              learningObjective: session.learningObjective,
+              sessionState: session.sessionState,
+              startedAt: session.startedAt.toISOString(),
+              lastActivityAt: session.lastActivityAt.toISOString(),
+              endedAt: session.endedAt ? session.endedAt.toISOString() : null,
+            },
+          },
+        });
+      } catch (error: any) {
+        request.log.error(error);
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: 'SESSION_LOAD_ERROR',
+            message: error.message || 'Failed to load session',
+          },
+        });
+      }
+    }
+  );
+
+  /**
    * POST /sessions/:id/message
    * Send a message in a session (streaming possible)
    */
