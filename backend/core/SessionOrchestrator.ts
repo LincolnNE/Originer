@@ -25,6 +25,26 @@ export class SessionOrchestrator {
   private llmAdapter: LLMAdapter;
   private storageAdapter: StorageAdapter;
 
+  /**
+   * Serialize all work per session so concurrent requests cannot interleave
+   * storage updates (e.g. two updateSession(messageIds) calls deleting each
+   * other's rows in session_messages — silent message loss).
+   */
+  private readonly sessionOpTail = new Map<string, Promise<unknown>>();
+
+  private runSerialized<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
+    const previous = this.sessionOpTail.get(sessionId) ?? Promise.resolve();
+    const current = previous.then(() => work());
+    this.sessionOpTail.set(
+      sessionId,
+      current.then(
+        () => undefined,
+        () => undefined
+      )
+    );
+    return current;
+  }
+
   constructor(
     promptAssembler: PromptAssembler,
     responseValidator: ResponseValidator,
@@ -45,6 +65,15 @@ export class SessionOrchestrator {
    * @returns Instructor message content
    */
   async processLearnerMessage(
+    sessionId: string,
+    learnerMessageContent: string
+  ): Promise<string> {
+    return this.runSerialized(sessionId, () =>
+      this.processLearnerMessageUnsynchronized(sessionId, learnerMessageContent)
+    );
+  }
+
+  private async processLearnerMessageUnsynchronized(
     sessionId: string,
     learnerMessageContent: string
   ): Promise<string> {
