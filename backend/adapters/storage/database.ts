@@ -151,6 +151,21 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
       CREATE INDEX IF NOT EXISTS idx_session_messages_order ON session_messages(session_id, sequence_order);
     `);
+
+    // MVP bootstrap: default instructor used by the landing page / demos
+    this.db.exec(`
+      INSERT OR IGNORE INTO instructors (id, name, bio, tone)
+      VALUES ('default', 'Default Instructor', NULL, 'friendly');
+      INSERT OR IGNORE INTO instructor_profiles (
+        instructor_id, explanation_style, analogy_patterns, forbidden_topics, curriculum_tree
+      ) VALUES (
+        'default',
+        '[]',
+        '{"style":"friendly"}',
+        '[]',
+        '{}'
+      );
+    `);
   }
 
   // Session operations
@@ -278,18 +293,22 @@ export class DatabaseStorageAdapter implements StorageAdapter {
 
     const placeholders = messageIds.map(() => '?').join(',');
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY created_at`)
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
       .all(...messageIds) as any[];
 
-    return rows.map(row => ({
-      id: row.id,
-      sessionId: row.session_id,
-      role: row.role as MessageRole,
-      content: row.content,
-      messageType: (row.message_type || 'question') as MessageType,
-      teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
-      timestamp: new Date(row.created_at),
-    }));
+    const byId = new Map(rows.map(row => [row.id as string, row]));
+    return messageIds
+      .map(id => byId.get(id))
+      .filter((row): row is NonNullable<typeof row> => row != null)
+      .map(row => ({
+        id: row.id,
+        sessionId: row.session_id,
+        role: row.role as MessageRole,
+        content: row.content,
+        messageType: (row.message_type || 'question') as MessageType,
+        teachingMetadata: row.teaching_metadata ? JSON.parse(row.teaching_metadata) : undefined,
+        timestamp: new Date(row.created_at),
+      }));
   }
 
   async saveMessage(message: Message): Promise<void> {
