@@ -302,13 +302,14 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     if (messageIds.length === 0) return [];
 
     const placeholders = messageIds.map(() => '?').join(',');
-    // Preserve session message order (created_at can reorder parallel or replayed messages).
-    const orderKey = `,${messageIds.join(',')},`;
     const rows = this.db
-      .prepare(
-        `SELECT * FROM messages WHERE id IN (${placeholders}) ORDER BY instr(?, ',' || id || ',')`
-      )
-      .all(orderKey, ...messageIds) as any[];
+      .prepare(`SELECT * FROM messages WHERE id IN (${placeholders})`)
+      .all(...messageIds) as any[];
+
+    // Preserve session order by explicit index. Do not use substring search on a joined
+    // id list — ids like "msg_1" and "msg_10" would confuse instr() and corrupt order.
+    const order = new Map(messageIds.map((id, idx) => [id, idx]));
+    rows.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
 
     return rows.map(row => ({
       id: row.id,
