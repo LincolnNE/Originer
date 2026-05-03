@@ -24,4 +24,19 @@ export interface StorageAdapter {
   // Learner memory operations
   loadLearnerMemory(learnerId: string): Promise<LearnerMemory | null>;
   saveLearnerMemory(memory: LearnerMemory): Promise<void>;
+
+  /** Idempotent: create row only if missing (for FK-safe session start). */
+  ensureInstructorExists(data: {
+    id: string;
+    name: string;
+    bio?: string;
+    tone?: string;
+  }): Promise<void>;
+
+  /** Idempotent: create row only if missing (for FK-safe session start). */
+  ensureLearnerExists(data: {
+    id: string;
+    name: string;
+    level?: string;
+  }): Promise<void>;
 }

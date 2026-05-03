@@ -442,6 +442,29 @@ export class DatabaseStorageAdapter implements StorageAdapter {
     stmt.run(data.id, data.name, data.level || 'beginner');
   }
 
+  async ensureInstructorExists(data: {
+    id: string;
+    name: string;
+    bio?: string;
+    tone?: string;
+  }): Promise<void> {
+    const stmt = this.db.prepare(`
+      INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, ?, ?)
+    `);
+    stmt.run(data.id, data.name, data.bio ?? null, data.tone ?? 'friendly');
+  }
+
+  async ensureLearnerExists(data: {
+    id: string;
+    name: string;
+    level?: string;
+  }): Promise<void> {
+    const stmt = this.db.prepare(`
+      INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)
+    `);
+    stmt.run(data.id, data.name, data.level ?? 'beginner');
+  }
+
   async saveInstructorMaterial(data: {
     id: string;
     instructorId: string;
