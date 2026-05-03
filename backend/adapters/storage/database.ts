@@ -25,6 +25,10 @@ export interface DatabaseConfig {
 export class DatabaseStorageAdapter implements StorageAdapter {
   private db: Database.Database;
 
+  /** Well-known IDs used when the client omits instructor/learner (MVP landing flow). */
+  static readonly DEFAULT_INSTRUCTOR_ID = 'default';
+  static readonly DEFAULT_LEARNER_ID = 'anonymous';
+
   constructor(config: DatabaseConfig) {
     if (config.type === 'sqlite') {
       const dbPath = config.connectionString || ':memory:';
@@ -151,6 +155,29 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
       CREATE INDEX IF NOT EXISTS idx_session_messages_order ON session_messages(session_id, sequence_order);
     `);
+
+    this.db.pragma('foreign_keys = ON');
+    this.seedDefaultUsers();
+  }
+
+  /**
+   * Ensure rows exist for default instructor/learner IDs so session inserts satisfy FKs
+   * and SessionOrchestrator can load instructor profile + learner memory.
+   */
+  private seedDefaultUsers(): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO instructors (id, name, bio, tone) VALUES (?, ?, ?, ?)`
+      )
+      .run(
+        DatabaseStorageAdapter.DEFAULT_INSTRUCTOR_ID,
+        'Default Instructor',
+        null,
+        'friendly'
+      );
+    this.db
+      .prepare(`INSERT OR IGNORE INTO learners (id, name, level) VALUES (?, ?, ?)`)
+      .run(DatabaseStorageAdapter.DEFAULT_LEARNER_ID, 'Learner', 'beginner');
   }
 
   // Session operations
