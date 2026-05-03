@@ -264,18 +264,18 @@ export class DatabaseStorageAdapter implements StorageAdapter {
       values.push(updates.endedAt?.toISOString() || null);
     }
     if (updates.messageIds !== undefined) {
-      // Delete old message IDs
-      this.db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
-      // Insert new message IDs
+      const deleteStmt = this.db.prepare('DELETE FROM session_messages WHERE session_id = ?');
       const insertStmt = this.db.prepare(
         'INSERT INTO session_messages (session_id, message_id, sequence_order) VALUES (?, ?, ?)'
       );
-      const insertMany = this.db.transaction((messages: Array<{ id: string; order: number }>) => {
-        for (const msg of messages) {
-          insertStmt.run(sessionId, msg.id, msg.order);
-        }
+      // Must be atomic: with FK enforcement, a failed insert after DELETE would wipe ordering.
+      const syncSessionMessages = this.db.transaction((sid: string, ids: string[]) => {
+        deleteStmt.run(sid);
+        ids.forEach((id, idx) => {
+          insertStmt.run(sid, id, idx);
+        });
       });
-      insertMany(updates.messageIds.map((id, idx) => ({ id, order: idx })));
+      syncSessionMessages(sessionId, updates.messageIds);
     }
 
     if (fields.length > 0) {
